@@ -11,5 +11,5 @@ defmodule Vigil.Core do
   use Boundary,
     top_level?: true,
     deps: [],
-    exports: [Context, Derived, MarketSnapshot, Rule, RuleEngine]
+    exports: [Config, Context, Derived, MarketSnapshot, Rule, RuleEngine]
 end
