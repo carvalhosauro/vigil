@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      MIX_ENV: prod
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up BEAM (Linux)
+        if: runner.os == 'Linux'
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.0"
+          elixir-version: "1.18.4"
+      - name: Set up Elixir (macOS)
+        if: runner.os == 'macOS'
+        run: brew install elixir
+      - run: mix deps.get --only prod
+      - run: mix release
+      - name: Package tarball + checksum
+        run: |
+          mkdir -p dist
+          tarball=$(ls _build/prod/vigil-*.tar.gz)
+          name="vigil-${GITHUB_REF_NAME}-$(uname -s)-$(uname -m).tar.gz"
+          cp "$tarball" "dist/${name}"
+          cd dist && shasum -a 256 "${name}" > "${name}.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vigil-${{ matrix.os }}
+          path: dist/*
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate changelog for this tag
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip all
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          body: ${{ steps.cliff.outputs.content }}
+          files: dist/**
