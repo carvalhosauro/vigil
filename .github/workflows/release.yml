@@ -18,7 +18,7 @@ jobs:
     env:
       MIX_ENV: prod
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up BEAM (Linux)
         if: runner.os == 'Linux'
         uses: erlef/setup-beam@v1
@@ -37,7 +37,7 @@ jobs:
           name="vigil-${GITHUB_REF_NAME}-$(uname -s)-$(uname -m).tar.gz"
           cp "$tarball" "dist/${name}"
           cd dist && shasum -a 256 "${name}" > "${name}.sha256"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vigil-${{ matrix.os }}
           path: dist/*
@@ -47,10 +47,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -61,7 +61,7 @@ jobs:
           config: cliff.toml
           args: --latest --strip all
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body: ${{ steps.cliff.outputs.content }}
           files: dist/**
