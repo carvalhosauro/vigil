@@ -8,5 +8,5 @@ defmodule Vigil.Core do
   This is enforced at compile time by `Boundary` (`deps: []`): the core may not
   depend on adapters or on any hex dependency. See RFC-0000 and RFC-0002.
   """
-  use Boundary, top_level?: true, deps: [], exports: []
+  use Boundary, top_level?: true, deps: [], exports: [Context, Derived, MarketSnapshot]
 end
