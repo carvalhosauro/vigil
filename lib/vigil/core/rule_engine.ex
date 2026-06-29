@@ -19,6 +19,7 @@ defmodule Vigil.Core.RuleEngine do
   """
 
   alias Vigil.Core.Context
+  alias Vigil.Core.Rule
 
   @comparison_ops [:gt, :gte, :lt, :lte, :eq, :ne]
   @crossing_ops [:crossed_above, :crossed_below]
@@ -28,6 +29,28 @@ defmodule Vigil.Core.RuleEngine do
 
   @type condition :: map()
   @type result :: {:ok, boolean()} | {:error, term()}
+
+  @doc """
+  Runs every rule targeting the context's asset and returns those that fire.
+
+  Triggered rules are returned in declaration order. Stops with
+  `{:error, {:rule, name, reason}}` on the first rule that cannot be evaluated.
+  """
+  @spec run([Rule.t()], Context.t(), keyword()) :: {:ok, [Rule.t()]} | {:error, term()}
+  def run(rules, %Context{} = context, opts \\ []) do
+    applicable = Enum.filter(rules, &(&1.asset == context.metadata.asset))
+
+    result =
+      Enum.reduce_while(applicable, {:ok, []}, fn rule, {:ok, acc} ->
+        case evaluate(rule.condition, context, opts) do
+          {:ok, true} -> {:cont, {:ok, [rule | acc]}}
+          {:ok, false} -> {:cont, {:ok, acc}}
+          {:error, reason} -> {:halt, {:error, {:rule, rule.name, reason}}}
+        end
+      end)
+
+    with {:ok, triggered} <- result, do: {:ok, Enum.reverse(triggered)}
+  end
 
   @spec evaluate(condition(), Context.t(), keyword()) :: result()
   def evaluate(condition, context, opts \\ [])
