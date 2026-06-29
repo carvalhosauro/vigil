@@ -1,0 +1,31 @@
+# Build artifacts
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+*.beam
+/tmp/
+
+# Releases
+/vigil-*.tar
+/burrito_out/
+
+# Dialyzer PLTs
+/priv/plts/*.plt
+/priv/plts/*.plt.hash
+
+# Secrets / local env
+*.secret.exs
+.env
+.env.*
+
+# Editors / tooling
+/.elixir_ls/
+/.lexical/
+.DS_Store
+
+# OMC (agent workspace)
+/.omc/
