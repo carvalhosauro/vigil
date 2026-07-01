@@ -33,6 +33,26 @@ defmodule Vigil.Core.ContextTest do
 
       assert ctx.derived.change_percent == 0.0
     end
+
+    test "volume_delta is nil on the first cycle" do
+      ctx = Context.build(snapshot(), asset: "petr4", provider: "yahoo")
+
+      assert ctx.derived.volume_delta == nil
+    end
+
+    test "volume_delta is the difference from the previous snapshot" do
+      previous = snapshot(volume: 100)
+      current = snapshot(volume: 250)
+
+      ctx =
+        Context.build(current,
+          asset: "petr4",
+          provider: "yahoo",
+          previous_snapshot: previous
+        )
+
+      assert ctx.derived.volume_delta == 150
+    end
   end
 
   describe "build/2 structure" do
