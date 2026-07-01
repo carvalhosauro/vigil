@@ -20,7 +20,7 @@ defmodule Vigil.Core.Config do
   @crossing_ops ~w(crossed_above crossed_below)
   @market_fields ~w(price open high low close volume)
   @derived_fields ~w(change change_percent daily_range volume_delta)
-  @runtime_fields ~w(market_open provider_online last_update)
+  @runtime_fields ~w(market_open provider_online last_update consecutive_failures)
   @duration_re ~r/^\d+[smh]$/
   @name_re ~r/^[a-z0-9]+(-[a-z0-9]+)*$/
   @env_var_re ~r/^\$\{[A-Z][A-Z0-9_]*\}$/

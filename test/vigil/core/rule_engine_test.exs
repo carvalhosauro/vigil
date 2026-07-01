@@ -63,6 +63,13 @@ defmodule Vigil.Core.RuleEngineTest do
                RuleEngine.evaluate(%{field: :change_percent, op: :gt, value: 0}, context())
     end
 
+    test "resolves consecutive_failures from runtime" do
+      ctx = context() |> then(&%{&1 | runtime: %{consecutive_failures: 3}})
+
+      assert {:ok, true} =
+               RuleEngine.evaluate(%{field: :consecutive_failures, op: :gte, value: 3}, ctx)
+    end
+
     test "a nil-valued field does not fire (no false positive)" do
       assert {:ok, false} =
                RuleEngine.evaluate(%{field: :volume_delta, op: :gt, value: 0}, context())

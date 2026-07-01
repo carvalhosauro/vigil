@@ -25,7 +25,7 @@ defmodule Vigil.Core.RuleEngine do
   @crossing_ops [:crossed_above, :crossed_below]
   @market_fields [:price, :open, :high, :low, :close, :volume]
   @derived_fields [:change, :change_percent, :daily_range, :volume_delta]
-  @runtime_fields [:market_open, :provider_online, :last_update]
+  @runtime_fields [:market_open, :provider_online, :last_update, :consecutive_failures]
 
   @type condition :: map()
   @type result :: {:ok, boolean()} | {:error, term()}
