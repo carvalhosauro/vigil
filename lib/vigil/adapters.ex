@@ -6,5 +6,8 @@ defmodule Vigil.Adapters do
   use external dependencies and may depend on `Vigil.Core`, but never the reverse
   (enforced by `Boundary`). See RFC-0004, RFC-0006, RFC-0007.
   """
-  use Boundary, top_level?: true, deps: [Vigil.Core], exports: []
+  use Boundary,
+    top_level?: true,
+    deps: [Vigil.Core],
+    exports: [Provider, Provider.Error, Provider.Registry, Provider.Yahoo]
 end
