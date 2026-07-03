@@ -116,13 +116,13 @@ A minimum catalog of V1 events, by component:
 
 | Component | Events                                                        |
 | --------- | ------------------------------------------------------------- |
-| Scheduler | cycle.triggered, cycle.skipped                                |
+| Scheduler | cycle.started, cycle.triggered, cycle.skipped                 |
 | Provider  | request.started, request.finished, request.failed             |
 | Indicator | computed, failed, warmup                                      |
 | Rule      | triggered, evaluated                                          |
 | Notifier  | sent, failed, suppressed                                     |
 | Reload    | started, completed, rejected                                  |
-| Runtime   | error, recovered                                              |
+| Runtime   | cycle.started, cycle.finished, cycle.failed, error, recovered |
 
 Each owning RFC defines the events it emits; this RFC defines the model.
 

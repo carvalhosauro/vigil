@@ -71,7 +71,7 @@ subgraph Configuration
     Reload["Live Reload"]
 end
 
-subgraph Runtime
+subgraph Collection
     Scheduler
     Provider
     Indicators
@@ -383,6 +383,16 @@ Examples:
 
 Events are used for observability and auditing.
 
+## 5.14 Runtime
+
+Responsible for executing the monitoring cycle (RFC-0015).
+
+It receives the Scheduler's trigger, calls the Provider, builds the Context, runs the Rule Engine, dispatches Actions, and advances State.
+
+It owns retry and cycle-level failure handling.
+
+The Runtime orchestrates; it never implements domain logic.
+
 ---
 
 # 6. Processing Flow
@@ -426,6 +436,8 @@ flowchart LR
 
 Each step has a single responsibility and must not assume the responsibilities of others.
 
+The cycle is orchestrated by the Runtime (RFC-0015): components never invoke one another directly.
+
 ---
 
 # 7. Responsibilities and Dependencies
@@ -436,6 +448,7 @@ Each step has a single responsibility and must not assume the responsibilities o
 | --------------- | --------------------------------------- |
 | Asset           | Represent a monitored asset               |
 | Scheduler       | Define when to monitor                    |
+| Runtime         | Orchestrate the monitoring cycle (RFC-0015) |
 | Provider        | Fetch market data                         |
 | Market Snapshot | Represent raw data                        |
 | Indicator       | Produce derived metrics                   |
@@ -480,6 +493,8 @@ Notifier
 ```
 
 Reverse dependencies are not allowed.
+
+This flow describes the direction of data; at run time the Runtime (RFC-0015) mediates each step, so components never call one another directly.
 
 For example:
 

@@ -10,7 +10,9 @@
 
 This RFC defines how Vigil handles **errors and failures**: classification, isolation, retry, and recovery.
 
-It is the home of the retry and supervision policies that other RFCs delegate to "the Runtime" (RFC-0004 §11, RFC-0005 §12, RFC-0007 §11).
+It is the home of error classification and supervision principles.
+
+The Runtime (RFC-0015) applies them when orchestrating the monitoring cycle: the retry policy other RFCs delegate to "the Runtime" (RFC-0004 §11, RFC-0005 §12, RFC-0007 §11) uses the categories defined here with the concrete values fixed in RFC-0015 §10.
 
 ---
 
@@ -71,6 +73,8 @@ All expected errors are classified into stable categories.
 
 This extends the Provider categories of RFC-0004 §10 across the whole system.
 
+An error that fits no category is not classified: it is an unexpected fault, and its unit crashes and is restarted (§4, RFC-0015 DEC-006).
+
 ---
 
 # 6. Fault Isolation
@@ -94,7 +98,7 @@ A crash in one boundary is contained by its supervisor.
 
 # 7. Retry Policy
 
-Retry is owned by the Runtime, centralizing what the Provider and Notifier delegate.
+Retry is owned by the Runtime, centralizing what the Provider and Notifier delegate; the concrete attempts, backoff, and budget are fixed in RFC-0015 §10.
 
 V1 policy:
 
@@ -127,6 +131,8 @@ attempt 3: wait 4s
 
 Backoff prevents hammering a failing external system.
 
+V1 concrete values (attempts, base, ceiling, budget) are fixed in RFC-0015 §10.
+
 The Scheduler continues to fire ticks independently (RFC-0005 §12); backoff governs retries within a cycle, not the cadence.
 
 ---
@@ -138,11 +144,12 @@ Vigil is structured as a supervision tree.
 ```mermaid
 flowchart TB
     Sup[Supervisor]
-    Sup --> Sched["Scheduler (per Asset)"]
-    Sup --> RT[Runtime]
+    Sup --> AW["Asset Workers — one per Asset (RFC-0015 §8)"]
     Sup --> EB["Event Bus"]
     Sup --> Obs[Observability]
 ```
+
+Each Asset Worker owns its Asset's schedule, state, and cycle execution (RFC-0015 §8).
 
 A crashing child is restarted by its supervisor without affecting siblings.
 

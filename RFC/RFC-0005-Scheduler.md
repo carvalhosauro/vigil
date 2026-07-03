@@ -84,7 +84,7 @@ flowchart TB
 
 The Scheduler emits a *cycle trigger* and stops there.
 
-The Runtime wires the trigger to the Provider.
+The Runtime wires the trigger to the Provider (RFC-0015).
 
 ---
 
@@ -116,7 +116,7 @@ This signal carries only the Asset identity.
 
 It carries no market data.
 
-The Runtime is responsible for invoking the correct Provider in response.
+The Runtime is responsible for invoking the correct Provider in response (RFC-0015 §6).
 
 ---
 
@@ -181,9 +181,11 @@ If a collection cycle fails, the Scheduler still honors the next tick.
 
 The Scheduler never retries the Provider itself.
 
-Retry and backoff policies belong to the Runtime and are defined in RFC-0013.
+Retry and backoff policies belong to the Runtime: categories in RFC-0013, concrete policy in RFC-0015 §10.
 
 The Scheduler only guarantees that ticks keep happening.
+
+A tick that fires while the previous cycle is still running is skipped, never queued (RFC-0015 §9).
 
 ---
 

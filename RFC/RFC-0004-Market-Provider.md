@@ -192,7 +192,7 @@ Errors must be standardized before being propagated.
 
 # 11. Retry Policy
 
-The retry policy belongs to the Runtime.
+The retry policy belongs to the Runtime (RFC-0015 §10).
 
 The Provider only reports the error that occurred.
 
@@ -204,7 +204,7 @@ It never decides when to repeat a request.
 
 The Provider must expose when an external limit has been reached.
 
-The Scheduler decides when to retry.
+The Runtime decides when to retry (RFC-0015 §10).
 
 ---
 
@@ -239,6 +239,8 @@ Minimum events:
 * provider.request.failed
 
 These events do not alter the execution flow.
+
+Emission is wired by the Runtime on the Provider's behalf (RFC-0015 DEC-009); the Provider stays a pure fetch-and-normalize function.
 
 ---
 
