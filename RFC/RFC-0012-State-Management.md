@@ -87,7 +87,7 @@ state[vale3] = { prev, windows, rules, notifications, health }
 
 State for one Asset is never visible to another.
 
-This isolation follows OTP principles: per-Asset state lives in an isolated, supervised unit.
+This isolation follows OTP principles: per-Asset state lives in an isolated, supervised unit — the Asset Worker (RFC-0015 §8).
 
 ---
 
@@ -115,7 +115,7 @@ stateDiagram-v2
 
 # 8. Update Rules
 
-State is updated **after** evaluation, never during.
+State is updated **after** evaluation, never during (the full cycle sequence is defined in RFC-0015 §7).
 
 This preserves Context immutability: the Context for cycle N is built from state as of cycle N−1, and only after evaluation is state advanced to N.
 

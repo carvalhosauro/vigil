@@ -79,6 +79,8 @@ After evaluation completes, the Context is discarded.
 
 The next execution will produce a new Context.
 
+The cycle that builds and consumes the Context is orchestrated by the Runtime (RFC-0015 §7).
+
 ---
 
 # 5. Structure Overview

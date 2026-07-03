@@ -195,6 +195,8 @@ The Notifier only reports the error.
 
 The Runtime decides whether and when to retry, consistent with RFC-0004 §11 and RFC-0013.
 
+Dispatch is asynchronous: delivery never blocks or aborts the monitoring cycle, and delivery retry is bounded by the cooldown window (RFC-0015 §12).
+
 ---
 
 # 12. Concurrency
