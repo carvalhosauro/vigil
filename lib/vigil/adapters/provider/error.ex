@@ -6,7 +6,7 @@ defmodule Vigil.Adapters.Provider.Error do
   errors; retry policy belongs to the Runtime.
   """
 
-  @categories ~w(timeout network authentication invalid_response rate_limit unavailable)a
+  @categories ~w(timeout network authentication invalid_response rate_limit unavailable configuration)a
 
   @enforce_keys [:category, :message, :provider, :symbol]
   defstruct @enforce_keys ++ [details: %{}]
@@ -18,6 +18,7 @@ defmodule Vigil.Adapters.Provider.Error do
           | :invalid_response
           | :rate_limit
           | :unavailable
+          | :configuration
 
   @type t :: %__MODULE__{
           category: category(),
