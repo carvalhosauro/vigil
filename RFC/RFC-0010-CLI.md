@@ -208,6 +208,15 @@ sequenceDiagram
     end
 ```
 
+## Control Channel
+
+The daemon exposes a control channel that `status` and `reload` connect to. In V1 this is a **Unix domain socket**.
+
+* **Transport** — a Unix domain socket at a conventional path (default `${XDG_RUNTIME_DIR}/vigil.sock`, overridable via `--config`/env), created by the daemon on `start`.
+* **Security** — access is governed by filesystem permissions: the socket is owner-only (`0600`). No TCP port is opened and nothing is exposed off-host. Cryptographic auth on the channel is a future extension.
+* **Absence** — if the socket is missing or unreachable, `status`/`reload` fail with exit code 3 (§11).
+* **Rationale** — a Unix socket needs no `epmd`, no distribution cookie, and no open port: the lowest-friction transport for a single-node OTP release. Erlang distribution and local HTTP were considered and rejected for V1 (extra moving parts and a port to secure).
+
 `validate` and `version` run without a daemon.
 
 ---
@@ -270,3 +279,7 @@ Exit codes are stable and documented.
 ## DEC-006
 
 Every command supports text and json output; errors go to stderr.
+
+## DEC-007
+
+The CLI↔daemon control channel is a Unix domain socket secured by filesystem permissions; no network port is exposed.
