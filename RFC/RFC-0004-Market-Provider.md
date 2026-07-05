@@ -128,14 +128,16 @@ Minimum fields:
 | --------- | -------- |
 | symbol    | string   |
 | timestamp | datetime |
-| open      | decimal  |
-| high      | decimal  |
-| low       | decimal  |
-| close     | decimal  |
-| price     | decimal  |
+| open      | float    |
+| high      | float    |
+| low       | float    |
+| close     | float    |
+| price     | float    |
 | volume    | integer  |
 
 This contract is defined in RFC-0002.
+
+V1 uses `float` for prices — pragmatic for v1, and matching the Yahoo parser and MarketSnapshot. A future `decimal` migration would change the MarketSnapshot public shape and is deferred (RFC-0002 §7, §15; RFC-0014 §9).
 
 ---
 
@@ -175,24 +177,35 @@ Operations that exceed the timeout return an error.
 
 # 10. Error Handling
 
-Errors must be classified.
+Errors are classified and returned as a standardized struct — the de-facto contract the Runtime and Notifier pattern-match on.
 
-Minimum categories:
+| Field    | Type   | Description                                  |
+| -------- | ------ | -------------------------------------------- |
+| category | atom   | one of the stable categories below           |
+| message  | string | human-readable description                    |
+| provider | string | the provider that produced the error          |
+| symbol   | string | the asset symbol in play, when applicable      |
+| details  | map    | provider-specific context (optional)           |
 
-* Timeout
-* Network Error
-* Authentication Error
-* Invalid Response
-* Rate Limit
-* Provider Unavailable
+The category taxonomy is owned by RFC-0013 §5; providers draw from it:
 
-Errors must be standardized before being propagated.
+* `:timeout`
+* `:network`
+* `:authentication`
+* `:invalid_response`
+* `:rate_limit`
+* `:unavailable`
+* `:configuration`
+
+An error the Provider cannot classify is **not** laundered into a transient category. It is an unexpected fault (RFC-0013 §4, RFC-0015 DEC-006).
+
+Errors are standardized before being propagated.
 
 ---
 
 # 11. Retry Policy
 
-The retry policy belongs to the Runtime.
+The retry policy belongs to the Runtime (RFC-0015 §10).
 
 The Provider only reports the error that occurred.
 
@@ -204,7 +217,7 @@ It never decides when to repeat a request.
 
 The Provider must expose when an external limit has been reached.
 
-The Scheduler decides when to retry.
+The Runtime decides when to retry (RFC-0015 §10).
 
 ---
 
@@ -239,6 +252,8 @@ Minimum events:
 * provider.request.failed
 
 These events do not alter the execution flow.
+
+Emission is wired by the Runtime on the Provider's behalf (RFC-0015 DEC-009); the Provider stays a pure fetch-and-normalize function.
 
 ---
 
@@ -321,3 +336,7 @@ The retry policy belongs to the Runtime, not the Provider.
 ## DEC-008
 
 V1 supports exclusively Yahoo Finance.
+
+## DEC-009
+
+Provider errors are returned as a standardized struct (category, message, provider, symbol, details); the category is drawn from the RFC-0013 §5 taxonomy.

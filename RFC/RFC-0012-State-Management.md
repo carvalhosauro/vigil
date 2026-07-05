@@ -55,6 +55,8 @@ State is anything the daemon must remember beyond a single cycle.
 | Notification state  | last alert time, cooldown (RFC-0007)    |
 | Runtime health      | consecutive_failures, last_success      |
 
+The health field `last_success` (timestamp of the last successful cycle) is exposed to Rules through the Context as `last_update` (RFC-0002 §10, RFC-0001 §8).
+
 ---
 
 # 5. What Is Not State
@@ -87,7 +89,7 @@ state[vale3] = { prev, windows, rules, notifications, health }
 
 State for one Asset is never visible to another.
 
-This isolation follows OTP principles: per-Asset state lives in an isolated, supervised unit.
+This isolation follows OTP principles: per-Asset state lives in an isolated, supervised unit — the Asset Worker (RFC-0015 §8).
 
 ---
 
@@ -115,7 +117,7 @@ stateDiagram-v2
 
 # 8. Update Rules
 
-State is updated **after** evaluation, never during.
+State is updated **after** evaluation, never during (the full cycle sequence is defined in RFC-0015 §7).
 
 This preserves Context immutability: the Context for cycle N is built from state as of cycle N−1, and only after evaluation is state advanced to N.
 

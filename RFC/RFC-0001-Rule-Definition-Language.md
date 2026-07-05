@@ -37,13 +37,13 @@ A rule is composed of four parts:
 Example:
 
 ```yaml
-apiVersion: vigil/v1
+apiVersion: v1
 kind: Rule
 metadata:
   name: petr4-breakout
 
 spec:
-  asset: PETR4
+  asset: petr4
   when:
     all:
       - field: price
@@ -54,6 +54,7 @@ spec:
         value: 500000
   actions:
     - telegram
+  cooldown: 5m
 ```
 
 ---
@@ -67,6 +68,7 @@ spec:
     asset:
     when:
     actions:
+    cooldown:   # optional — execution policy
 ```
 
 *asset* defines which asset will be observed.
@@ -74,6 +76,10 @@ spec:
 *when* represents the condition.
 
 *actions* represent the actions to be executed.
+
+*cooldown* is the rule's **execution policy** — the fourth part named in §2. It is the minimum interval between repeated notifications while the condition stays satisfied (RFC-0007 §9).
+
+It is optional and expressed as a `duration` (e.g. `5m`). When omitted, the default from `Defaults` applies (RFC-0003 §5.4).
 
 ---
 

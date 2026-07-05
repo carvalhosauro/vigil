@@ -159,6 +159,8 @@ The notification layer applies:
 
 The state required for dedup and cooldown is owned by State Management (RFC-0012).
 
+The cooldown interval is configured per Rule via `spec.cooldown`, with a global default in `Defaults` (RFC-0003 §5.2, §5.4); it is the Rule's execution policy (RFC-0001 §3).
+
 V1 defaults: notify on transition into the satisfied state; suppress while it remains satisfied.
 
 ```mermaid
@@ -194,6 +196,8 @@ Retry of failed deliveries belongs to the Runtime, not the Notifier.
 The Notifier only reports the error.
 
 The Runtime decides whether and when to retry, consistent with RFC-0004 §11 and RFC-0013.
+
+Dispatch is asynchronous: delivery never blocks or aborts the monitoring cycle, and delivery retry is bounded by the cooldown window (RFC-0015 §12).
 
 ---
 
@@ -268,7 +272,7 @@ Message rendering is deterministic.
 
 ## DEC-005
 
-Deduplication and cooldown prevent repeated alerts; V1 notifies on transition into satisfied.
+Deduplication and cooldown prevent repeated alerts; V1 notifies on transition into satisfied. The cooldown interval is configured via `spec.cooldown` (RFC-0003 §5.2/§5.4).
 
 ## DEC-006
 

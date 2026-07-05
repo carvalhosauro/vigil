@@ -86,6 +86,21 @@ Represents the resource-specific configuration.
 
 Each Kind defines its own schema.
 
+## 3.5 Variable Interpolation
+
+Any string value in a `spec` may reference an environment variable using `${VAR}` syntax.
+
+* **When** — interpolation happens at **parse time**, before validation.
+* **Missing variable** — if `${VAR}` resolves to nothing, it is a **validation error**: the resource is rejected and (on reload) the previous valid configuration keeps running (§10). The literal `${VAR}` is never passed through.
+* **Scope** — interpolation applies to all string fields, not only secrets. Secrets (tokens, chat IDs) are the primary use (§5.3, DEC-006), but any field may reference the environment.
+
+Example:
+
+```yaml
+spec:
+  token: ${TELEGRAM_TOKEN}   # expanded at parse; missing → validation error
+```
+
 ---
 
 # 4. Directory Structure
@@ -155,9 +170,19 @@ spec:
         value: 40
   actions:
     - telegram
+  cooldown: 5m
 ```
 
 The `when` syntax is defined in RFC-0001.
+
+| Field    | Required |
+| -------- | -------- |
+| asset    | Yes      |
+| when     | Yes      |
+| actions  | Yes      |
+| cooldown | No       |
+
+`cooldown` is the Rule's execution policy (RFC-0001 §3): the minimum interval between repeated notifications while the condition stays satisfied (RFC-0007 §9). If omitted, the `Defaults` cooldown applies (§5.4). Expressed as a `duration`.
 
 ## 5.3 Telegram
 
@@ -191,9 +216,13 @@ metadata:
 spec:
   polling:
     interval: 1m
+  notifications:
+    cooldown: 5m
 ```
 
 All resources may use values defined in this document.
+
+`notifications.cooldown` is the default cooldown applied to any Rule that does not declare its own (RFC-0001 §3, RFC-0007 §9).
 
 ---
 
@@ -403,3 +432,7 @@ Secrets must never be stored directly in CRDs.
 ## DEC-007
 
 The CRD structure is considered a public API and must preserve compatibility across versions.
+
+## DEC-008
+
+Environment variables in `${VAR}` form are expanded at parse time; a missing variable is a validation error, never a literal passthrough.

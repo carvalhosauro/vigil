@@ -31,7 +31,7 @@ The plugin system must be:
 * Contract-first
 * Core-stable (extensions never modify the core)
 * Uniform (each kind has one contract)
-* Discoverable (implementations register declaratively)
+* Discoverable (configuration references implementations by name)
 * Isolated (a plugin failure is contained, RFC-0013)
 
 A Behaviour is a contract.
@@ -140,9 +140,11 @@ Incompatible changes require a new contract version, mirroring RFC-0003 §12.
 
 # 10. Registration
 
-Plugins are registered **declaratively**, by name.
+Configuration **references** plugins declaratively, by name; the daemon resolves each name to a registered implementation.
 
-A configuration resource selects an implementation by name, and the system resolves it:
+In V1 the registry is a **static, compile-time map** from name to module, with an environment-variable escape hatch for overrides. Dynamic, config-driven registration is a future extension (§14). What is declarative in V1 is the *reference* (config selects by name), not the *registration*.
+
+A configuration resource selects an implementation by name:
 
 ```yaml
 spec:
@@ -176,7 +178,7 @@ flowchart TB
     Kind -->|yes| Bound["Bound — daemon starts"]
 ```
 
-An unresolved plugin is a configuration error and never starts the daemon (RFC-0010 §7).
+An unresolved or wrong-kind plugin name is a `:configuration` error (RFC-0013 §5) and never starts the daemon (RFC-0010 §7).
 
 ---
 
@@ -205,6 +207,8 @@ V1 ships exactly:
 These built-ins implement the same Behaviours any future plugin would.
 
 There is no privileged path for built-ins.
+
+In V1 the built-ins are wired into the static registry map described in §10.
 
 ---
 
@@ -251,7 +255,7 @@ A Behaviour is a public contract; incompatible changes require a new version.
 
 ## DEC-005
 
-Plugins are registered and referenced by name.
+Plugins are referenced by name; in V1 the registry is a static compile-time map (with an env-var override). Dynamic registration is a future extension.
 
 ## DEC-006
 

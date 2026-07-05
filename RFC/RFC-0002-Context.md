@@ -79,6 +79,8 @@ After evaluation completes, the Context is discarded.
 
 The next execution will produce a new Context.
 
+The cycle that builds and consumes the Context is orchestrated by the Runtime (RFC-0015 §7).
+
 ---
 
 # 5. Structure Overview
@@ -121,7 +123,7 @@ Identifies the monitored asset.
 Example:
 
 ```yaml
-asset: PETR4
+asset: petr4
 provider: yahoo
 timestamp: 2026-07-01T10:30:00Z
 polling_interval: 30s
@@ -137,16 +139,18 @@ Minimum V1 fields:
 
 | Field  | Type    |
 | ------ | ------- |
-| price  | decimal |
-| open   | decimal |
-| high   | decimal |
-| low    | decimal |
-| close  | decimal |
+| price  | float   |
+| open   | float   |
+| high   | float   |
+| low    | float   |
+| close  | float   |
 | volume | integer |
 
 These values are never calculated by Vigil.
 
 They are only normalized.
+
+V1 types prices as `float` for pragmatism — the Yahoo Provider and the MarketSnapshot are float-based. A later migration to `decimal` would change the public MarketSnapshot shape and is therefore deferred (§15; RFC-0014 §9).
 
 ---
 
@@ -194,12 +198,14 @@ Represents information about the execution environment.
 | -------------------- |
 | market_open          |
 | provider_online      |
-| last_success         |
+| last_update          |
 | consecutive_failures |
 
 These fields do not belong to the market.
 
 They represent the operational state of the daemon.
+
+`last_update` is the timestamp of the last successful cycle; it is sourced from State's `last_success` field (RFC-0012 §4).
 
 ---
 
@@ -322,7 +328,7 @@ None of these extensions should require changes to the Rule Engine.
 
 ```yaml
 metadata:
-  asset: PETR4
+  asset: petr4
   provider: yahoo
   timestamp: 2026-07-01T10:30:00Z
 
