@@ -55,6 +55,8 @@ State is anything the daemon must remember beyond a single cycle.
 | Notification state  | last alert time, cooldown (RFC-0007)    |
 | Runtime health      | consecutive_failures, last_success      |
 
+The health field `last_success` (timestamp of the last successful cycle) is exposed to Rules through the Context as `last_update` (RFC-0002 §10, RFC-0001 §8).
+
 ---
 
 # 5. What Is Not State

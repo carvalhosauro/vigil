@@ -219,7 +219,7 @@ Examples:
 
 - Asset
 - Rule
-- Notification
+- Telegram
 - Defaults
 
 Configuration is the single source of truth.

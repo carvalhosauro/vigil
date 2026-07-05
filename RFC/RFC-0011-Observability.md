@@ -62,6 +62,8 @@ All three derive from the same Event stream (RFC-0009).
 
 Vigil emits telemetry through a standard, OTP-native mechanism (`:telemetry`).
 
+In V1 Events *are* `:telemetry` events, emitted by the Event Bus (RFC-0009 §11); Observability defines no emission of its own. It only **attaches handlers** at startup that turn those events into metrics, logs, and health. This is a single direction — Events flow to Observability, never the reverse.
+
 ```mermaid
 flowchart LR
     Component -->|emit| Event
@@ -125,7 +127,7 @@ It is derived from runtime state (RFC-0012) and recent events.
 | ------------------ | ------------------------------------ |
 | provider_online    | recent requests are succeeding       |
 | scheduler_active   | cycles are firing on schedule        |
-| consecutive_failures | below a configured threshold       |
+| consecutive_failures | below 5 (the threshold fixed in RFC-0015 §11) |
 
 Health is surfaced through `vigil status` (RFC-0010 §8).
 

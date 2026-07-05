@@ -73,6 +73,8 @@ All expected errors are classified into stable categories.
 
 This extends the Provider categories of RFC-0004 §10 across the whole system.
 
+As atoms in the standardized Error struct (RFC-0004 §10): `:timeout`, `:network`, `:authentication`, `:invalid_response`, `:rate_limit`, `:unavailable`, `:configuration`.
+
 An error that fits no category is not classified: it is an unexpected fault, and its unit crashes and is restarted (§4, RFC-0015 DEC-006).
 
 ---
@@ -167,7 +169,7 @@ The system must keep running while degraded.
 | Notifier down           | suppress/queue delivery, keep monitoring   |
 | One Asset crashing       | restart it, keep others running           |
 
-`provider_online` and `consecutive_failures` are exposed in the Context (RFC-0002) and health (RFC-0011).
+`provider_online` and `consecutive_failures` are exposed in the Context (RFC-0002) and health (RFC-0011). `provider_online` flips to false at 5 consecutive failures — the threshold fixed in RFC-0015 §11.
 
 ---
 

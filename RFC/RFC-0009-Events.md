@@ -192,7 +192,7 @@ It turns Events into:
 * structured logs;
 * health signals.
 
-Events are the source; Observability is a consumer. The mapping to `:telemetry` is defined in RFC-0011.
+Events are the source; Observability is a consumer. In V1 the Event Bus **is** the telemetry layer: each emitted Event is a `:telemetry` event, and Observability (RFC-0011) attaches handlers to it. There is no separate mapping layer.
 
 ---
 
@@ -264,3 +264,7 @@ Observability is a consumer of Events, not their owner.
 ## DEC-007
 
 An error event reports an error; it does not handle it.
+
+## DEC-008
+
+In V1 the Event Bus is the `:telemetry` layer; Events are emitted directly as telemetry events, with no separate mapping layer.
