@@ -58,7 +58,7 @@ The Runtime must:
 * build the Context in the order defined by RFC-0002 §11;
 * run the Rule Engine and dispatch resulting Actions;
 * advance per-Asset State only after evaluation (RFC-0012 §8);
-* maintain runtime health fields (`provider_online`, `consecutive_failures`, `last_success`);
+* maintain runtime health fields (`provider_online`, `consecutive_failures`, `last_update`);
 * emit the lifecycle and error Events other RFCs promise (RFC-0004 §15, RFC-0009, RFC-0013 §11).
 
 The Runtime must never:
@@ -222,8 +222,8 @@ The Runtime is the writer of the runtime section of the Context (RFC-0002 §10).
 | ---------------------- | ----------------------------------------------------------- |
 | consecutive_failures   | +1 per failed cycle (after retries), reset to 0 on success  |
 | provider_online        | `consecutive_failures < 5`                                  |
-| last_success           | timestamp of the last successful cycle                      |
-| market_open            | taken from the Provider snapshot when available (§14 Open Questions) |
+| last_update            | timestamp of the last successful cycle (State stores it as `last_success`, RFC-0012 §4) |
+| market_open            | taken from the Provider snapshot when it exposes it; defaults to `true` otherwise (DEC-010) |
 
 A failed cycle still advances health state: read state, increment failures, write state, emit events.
 
@@ -258,13 +258,13 @@ An in-flight cycle of a removed Asset is abandoned; its results are never delive
 
 ---
 
-# 14. Open Questions
+# 14. Resolved Questions
 
-To resolve before this RFC leaves Draft:
+These were open in earlier drafts and are settled for V1:
 
-* **market_open source** — Provider snapshot field, or a market-calendar computation (timezone, B3 holidays)? V1 recommendation: take it from the Provider when the API exposes it, default `true` otherwise, and document the imprecision. A calendar is a future extension.
-* **Rate-limit wait vs. skip** — when the provider signals rate limit with a hint longer than the next tick, should the worker suspend upcoming ticks (backpressure) or keep ticking and failing? V1 recommendation: keep ticking; each tick fails fast while the window lasts.
-* **Cycle timeout ceiling** — is the next-tick budget (§10) enough, or does a cycle also need an absolute ceiling for very long intervals (e.g. `1h` assets)? V1 recommendation: absolute ceiling of 60s per cycle.
+* **market_open source** — taken from the Provider snapshot when the API exposes it; defaults to `true` otherwise. The imprecision is documented; a market-calendar (timezone, B3 holidays) is a future extension (DEC-010).
+* **Rate-limit wait vs. skip** — the worker keeps ticking; each tick fails fast while the rate-limit window lasts. No tick suspension in V1 (DEC-011).
+* **Cycle timeout ceiling** — beyond the next-tick budget (§10), a cycle has an absolute ceiling of 60s (DEC-012).
 
 ---
 
@@ -352,3 +352,15 @@ Action dispatch is asynchronous; delivery never blocks or aborts the monitoring 
 ## DEC-009
 
 The Runtime emits provider.request.* events on the Provider's behalf; Providers stay pure.
+
+## DEC-010
+
+`market_open` comes from the Provider snapshot when the API exposes it, defaulting to `true` otherwise; a market calendar is a future extension.
+
+## DEC-011
+
+On a rate limit longer than the next tick, the worker keeps ticking and each tick fails fast; ticks are never suspended in V1.
+
+## DEC-012
+
+A cycle has an absolute timeout ceiling of 60s, in addition to the next-tick retry budget.
