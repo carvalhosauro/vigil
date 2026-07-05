@@ -44,6 +44,7 @@ defmodule Vigil.MixProject do
       {:yaml_elixir, "~> 2.11"},
       {:file_system, "~> 1.0"},
       {:req, "~> 0.5"},
+      {:plug, "~> 1.0", only: :test},
 
       # Architecture / quality / docs (not shipped in the release)
       {:boundary, "~> 0.10", runtime: false},

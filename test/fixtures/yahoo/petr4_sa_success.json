@@ -1,0 +1,20 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "BRL",
+          "symbol": "PETR4.SA",
+          "regularMarketTime": 1719833400,
+          "regularMarketPrice": 38.42,
+          "chartPreviousClose": 38.10,
+          "regularMarketOpen": 37.9,
+          "regularMarketDayHigh": 38.6,
+          "regularMarketDayLow": 37.8,
+          "regularMarketVolume": 845231
+        }
+      }
+    ],
+    "error": null
+  }
+}
