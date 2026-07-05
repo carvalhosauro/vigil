@@ -159,6 +159,8 @@ The notification layer applies:
 
 The state required for dedup and cooldown is owned by State Management (RFC-0012).
 
+The cooldown interval is configured per Rule via `spec.cooldown`, with a global default in `Defaults` (RFC-0003 §5.2, §5.4); it is the Rule's execution policy (RFC-0001 §3).
+
 V1 defaults: notify on transition into the satisfied state; suppress while it remains satisfied.
 
 ```mermaid
@@ -270,7 +272,7 @@ Message rendering is deterministic.
 
 ## DEC-005
 
-Deduplication and cooldown prevent repeated alerts; V1 notifies on transition into satisfied.
+Deduplication and cooldown prevent repeated alerts; V1 notifies on transition into satisfied. The cooldown interval is configured via `spec.cooldown` (RFC-0003 §5.2/§5.4).
 
 ## DEC-006
 
