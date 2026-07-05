@@ -7,7 +7,9 @@ defmodule Vigil.Adapters.Provider.Yahoo do
 
   Snapshot semantics for a point-in-time poll:
 
-    * `price` and `close` both map to `regularMarketPrice` (last known price).
+    * `price` maps to `regularMarketPrice` (the last price).
+    * `close` maps to `chartPreviousClose`/`previousClose` (the previous session
+      close), falling back to `price` when the API omits both.
     * OHLCV fields are taken from `meta` without further calculation.
 
   Telemetry (`provider.request.*`) is documented on the behaviour and wired in
@@ -52,7 +54,7 @@ defmodule Vigil.Adapters.Provider.Yahoo do
 
     [
       base_url: @base_url,
-      url: "/v8/finance/chart/#{URI.encode(symbol)}",
+      url: "/v8/finance/chart/#{URI.encode(symbol, &URI.char_unreserved?/1)}",
       params: [interval: "1d", range: "1d"],
       receive_timeout: Keyword.get(config, :timeout, 10_000),
       retry: false,
@@ -68,88 +70,51 @@ defmodule Vigil.Adapters.Provider.Yahoo do
   end
 
   defp handle_response({:ok, %{status: 401}}, symbol),
-    do: auth_error(symbol, 401)
+    do: error(:authentication, "yahoo authentication failed", symbol, %{status: 401})
 
   defp handle_response({:ok, %{status: 403}}, symbol),
-    do: auth_error(symbol, 403)
+    do: error(:authentication, "yahoo authentication failed", symbol, %{status: 403})
 
-  defp handle_response({:ok, %{status: 429, body: body}}, symbol),
-    do:
-      {:error,
-       Error.new(:rate_limit, %{
-         message: "yahoo rate limit exceeded",
-         provider: @provider,
-         symbol: symbol,
-         details: %{status: 429, body: truncate(body)}
-       })}
+  defp handle_response({:ok, %{status: 429, body: body}}, symbol) do
+    error(:rate_limit, "yahoo rate limit exceeded", symbol, %{status: 429, body: truncate(body)})
+  end
 
   defp handle_response({:ok, %{status: status}}, symbol) when status >= 500 do
-    {:error,
-     Error.new(:unavailable, %{
-       message: "yahoo service unavailable",
-       provider: @provider,
-       symbol: symbol,
-       details: %{status: status}
-     })}
+    error(:unavailable, "yahoo service unavailable", symbol, %{status: status})
   end
 
   defp handle_response({:ok, %{status: 404}}, symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "yahoo symbol not found",
-       provider: @provider,
-       symbol: symbol,
-       details: %{status: 404}
-     })}
+    error(:invalid_response, "yahoo symbol not found", symbol, %{status: 404})
   end
 
   defp handle_response({:ok, %{status: status, body: body}}, symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "unexpected yahoo response",
-       provider: @provider,
-       symbol: symbol,
-       details: %{status: status, body: truncate(body)}
-     })}
+    error(:invalid_response, "unexpected yahoo response", symbol, %{
+      status: status,
+      body: truncate(body)
+    })
   end
 
   defp handle_response({:error, reason}, symbol) do
-    {:error, classify_request_error(reason, symbol)}
+    classify_request_error(reason, symbol)
   end
 
-  defp normalize_body(body, symbol) when is_map(body) do
-    case get_in(body, ["chart", "error"]) do
-      %{"code" => code, "description" => description} ->
-        category =
-          if code in ["Not Found", "Not Found - symbol may be delisted"] do
-            :invalid_response
-          else
-            :unavailable
-          end
-
-        {:error,
-         Error.new(category, %{
-           message: description || "yahoo chart error",
-           provider: @provider,
-           symbol: symbol,
-           details: %{code: code}
-         })}
+  defp normalize_body(%{"chart" => chart}, symbol) when is_map(chart) do
+    case chart["error"] do
+      %{"code" => code} = err ->
+        error(:invalid_response, Map.get(err, "description") || "yahoo chart error", symbol, %{
+          code: code
+        })
 
       _ ->
-        case get_in(body, ["chart", "result"]) do
+        case chart["result"] do
           [%{"meta" => meta} | _] -> build_snapshot(symbol, meta)
-          _ -> missing_result_error(symbol)
+          _ -> error(:invalid_response, "yahoo response has no chart result", symbol)
         end
     end
   end
 
   defp normalize_body(_body, symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "yahoo response is not a JSON object",
-       provider: @provider,
-       symbol: symbol
-     })}
+    error(:invalid_response, "unexpected yahoo response shape", symbol)
   end
 
   defp build_snapshot(symbol, meta) do
@@ -159,6 +124,7 @@ defmodule Vigil.Adapters.Provider.Yahoo do
          {:ok, high} <- parse_float(meta["regularMarketDayHigh"], "high", symbol),
          {:ok, low} <- parse_float(meta["regularMarketDayLow"], "low", symbol),
          {:ok, price} <- parse_float(meta["regularMarketPrice"], "price", symbol),
+         {:ok, close} <- parse_close(meta, price, symbol),
          {:ok, volume} <- parse_volume(meta["regularMarketVolume"], symbol) do
       {:ok,
        %MarketSnapshot{
@@ -167,7 +133,7 @@ defmodule Vigil.Adapters.Provider.Yahoo do
          open: open,
          high: high,
          low: low,
-         close: price,
+         close: close,
          price: price,
          volume: volume
        }}
@@ -183,23 +149,14 @@ defmodule Vigil.Adapters.Provider.Yahoo do
     if missing == [] do
       :ok
     else
-      {:error,
-       Error.new(:invalid_response, %{
-         message: "yahoo response missing required fields",
-         provider: @provider,
-         symbol: symbol,
-         details: %{missing: missing}
-       })}
+      error(:invalid_response, "yahoo response missing required fields", symbol, %{
+        missing: missing
+      })
     end
   end
 
   defp validate_meta(_meta, symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "yahoo meta is not a map",
-       provider: @provider,
-       symbol: symbol
-     })}
+    error(:invalid_response, "yahoo meta is not a map", symbol)
   end
 
   defp parse_timestamp(value, _symbol) when is_integer(value) and value > 0 do
@@ -207,25 +164,19 @@ defmodule Vigil.Adapters.Provider.Yahoo do
   end
 
   defp parse_timestamp(value, symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "invalid regularMarketTime",
-       provider: @provider,
-       symbol: symbol,
-       details: %{value: value}
-     })}
+    error(:invalid_response, "invalid regularMarketTime", symbol, %{value: value})
   end
 
-  defp parse_float(value, field, symbol) when is_number(value) do
-    if is_float(value) and is_nan(value) do
-      invalid_number_error(field, value, symbol)
-    else
-      {:ok, value * 1.0}
+  defp parse_float(value, _field, _symbol) when is_number(value), do: {:ok, value * 1.0}
+
+  defp parse_float(value, field, symbol),
+    do: error(:invalid_response, "invalid #{field}", symbol, %{field: field, value: value})
+
+  defp parse_close(meta, price, symbol) do
+    case meta["chartPreviousClose"] || meta["previousClose"] do
+      nil -> {:ok, price}
+      value -> parse_float(value, "close", symbol)
     end
-  end
-
-  defp parse_float(value, field, symbol) do
-    invalid_number_error(field, value, symbol)
   end
 
   defp parse_volume(value, _symbol) when is_integer(value) and value >= 0 do
@@ -237,76 +188,32 @@ defmodule Vigil.Adapters.Provider.Yahoo do
   end
 
   defp parse_volume(value, symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "invalid regularMarketVolume",
-       provider: @provider,
-       symbol: symbol,
-       details: %{value: value}
-     })}
+    error(:invalid_response, "invalid regularMarketVolume", symbol, %{value: value})
   end
 
   defp classify_request_error(%Req.TransportError{reason: :timeout}, symbol) do
-    Error.new(:timeout, %{
-      message: "yahoo request timed out",
-      provider: @provider,
-      symbol: symbol
-    })
+    error(:timeout, "yahoo request timed out", symbol)
   end
 
   defp classify_request_error(%Req.TransportError{reason: reason}, symbol) do
-    Error.new(:network, %{
-      message: "yahoo network error",
-      provider: @provider,
-      symbol: symbol,
-      details: %{reason: reason}
-    })
+    error(:network, "yahoo network error", symbol, %{reason: reason})
   end
 
   defp classify_request_error(%Jason.DecodeError{} = reason, symbol) do
-    Error.new(:invalid_response, %{
-      message: "yahoo response is not valid JSON",
-      provider: @provider,
-      symbol: symbol,
-      details: %{reason: reason}
-    })
+    error(:invalid_response, "yahoo response is not valid JSON", symbol, %{reason: reason})
   end
 
   defp classify_request_error(reason, symbol) do
-    Error.new(:network, %{
-      message: "yahoo request failed",
-      provider: @provider,
-      symbol: symbol,
-      details: %{reason: reason}
-    })
+    error(:invalid_response, "yahoo request failed", symbol, %{reason: reason})
   end
 
-  defp auth_error(symbol, status) do
+  defp error(category, message, symbol, details \\ %{}) do
     {:error,
-     Error.new(:authentication, %{
-       message: "yahoo authentication failed",
+     Error.new(category, %{
+       message: message,
        provider: @provider,
        symbol: symbol,
-       details: %{status: status}
-     })}
-  end
-
-  defp missing_result_error(symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "yahoo response has no chart result",
-       provider: @provider,
-       symbol: symbol
-     })}
-  end
-
-  defp invalid_number_error(field, value, symbol) do
-    {:error,
-     Error.new(:invalid_response, %{
-       message: "invalid #{field}",
-       provider: @provider,
-       symbol: symbol,
-       details: %{field: field, value: value}
+       details: details
      })}
   end
 
@@ -319,7 +226,4 @@ defmodule Vigil.Adapters.Provider.Yahoo do
   end
 
   defp truncate(body), do: body
-
-  defp is_nan(value) when is_float(value), do: value != value
-  defp is_nan(_), do: false
 end

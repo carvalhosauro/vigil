@@ -48,15 +48,16 @@ defmodule Vigil.Adapters.Provider.YahooTest do
     assert snapshot.high == 38.6
     assert snapshot.low == 37.8
     assert snapshot.price == 38.42
-    assert snapshot.close == 38.42
+    assert snapshot.close == 38.10
     assert snapshot.volume == 845_231
   end
 
-  test "close equals price for point-in-time poll" do
+  test "close maps to previous close" do
     stub_json(fixture("petr4_sa_success.json"))
 
     assert {:ok, snapshot} = Yahoo.fetch(@asset, fetch_opts())
-    assert snapshot.close == snapshot.price
+    assert snapshot.close == 38.10
+    assert snapshot.close != snapshot.price
   end
 
   test "returns invalid_response when chart error is not found" do
@@ -66,10 +67,23 @@ defmodule Vigil.Adapters.Provider.YahooTest do
              Yahoo.fetch(@asset, fetch_opts())
   end
 
-  test "returns unavailable for other chart errors" do
+  test "returns invalid_response for unrecognized chart errors" do
     stub_json(fixture("chart_error.json"))
 
-    assert {:error, %{category: :unavailable}} = Yahoo.fetch(@asset, fetch_opts())
+    assert {:error, %{category: :invalid_response}} = Yahoo.fetch(@asset, fetch_opts())
+  end
+
+  test "does not crash when chart is a non-map (proxy/CDN 200)" do
+    stub_json(%{"chart" => []})
+
+    assert {:error, %{category: :invalid_response}} = Yahoo.fetch(@asset, fetch_opts())
+  end
+
+  test "classifies chart error carrying only a code" do
+    stub_json(%{"chart" => %{"result" => nil, "error" => %{"code" => "Bad Request"}}})
+
+    assert {:error, %{category: :invalid_response, details: %{code: "Bad Request"}}} =
+             Yahoo.fetch(@asset, fetch_opts())
   end
 
   test "returns invalid_response when required meta fields are missing" do
