@@ -83,18 +83,30 @@ defmodule Vigil.Runtime.AssetWorker do
   end
 
   def handle_info({:cycle_timeout, ref}, %{cycle: %{ref: ref, pid: pid}} = state) do
-    Process.exit(pid, :kill)
-    Process.demonitor(ref, [:flush])
+    # Drain: if the task result is already in the mailbox (arrived just before
+    # this timeout message was processed), prefer it over declaring a timeout
+    # failure — prevents a lost cooldown write and a spurious health-counter
+    # increment (RFC-0015 DEC-008).
+    receive do
+      {^ref, {_report, vigil_state}} ->
+        Process.demonitor(ref, [:flush])
+        {:noreply, %{state | vigil_state: vigil_state, cycle: nil, timeout_ref: nil}}
+    after
+      0 ->
+        Process.exit(pid, :kill)
+        Process.demonitor(ref, [:flush])
 
-    vigil_state = State.advance(state.vigil_state, %{fetch_outcome: :error, rule_results: %{}})
+        vigil_state =
+          State.advance(state.vigil_state, %{fetch_outcome: :error, rule_results: %{}})
 
-    Events.emit(
-      [:runtime, :cycle, :failed],
-      %{consecutive_failures: vigil_state.health.consecutive_failures},
-      %{asset: state.asset.name, reason: :timeout_ceiling}
-    )
+        Events.emit(
+          [:runtime, :cycle, :failed],
+          %{consecutive_failures: vigil_state.health.consecutive_failures},
+          %{asset: state.asset.name, reason: :timeout_ceiling}
+        )
 
-    {:noreply, %{state | vigil_state: vigil_state, cycle: nil, timeout_ref: nil}}
+        {:noreply, %{state | vigil_state: vigil_state, cycle: nil, timeout_ref: nil}}
+    end
   end
 
   # Late replies from a killed cycle task, stale timeout timers, dispatch
@@ -133,10 +145,19 @@ defmodule Vigil.Runtime.AssetWorker do
       Enum.each(rule.actions, fn action ->
         case Notifier.Registry.fetch(action) do
           {:ok, notifier} ->
-            {:ok, _pid} =
-              Task.Supervisor.start_child(dispatch_supervisor, fn ->
-                deliver(notifier, rule, context, asset_name)
-              end)
+            case Task.Supervisor.start_child(dispatch_supervisor, fn ->
+                   deliver(notifier, rule, context, asset_name)
+                 end) do
+              {:ok, _pid} ->
+                :ok
+
+              {:error, reason} ->
+                Events.emit([:notification, :failed], %{}, %{
+                  asset: asset_name,
+                  rule: rule.name,
+                  reason: {:dispatch_start_failed, reason}
+                })
+            end
 
           :error ->
             Events.emit([:notification, :failed], %{}, %{
