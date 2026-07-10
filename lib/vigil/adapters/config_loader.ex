@@ -1,4 +1,6 @@
 defmodule Vigil.Adapters.ConfigLoader do
+  alias Vigil.Core.Config
+
   @moduledoc """
   Loads CRD resources from the configuration directory (RFC-0003 §4).
 
@@ -13,10 +15,24 @@ defmodule Vigil.Adapters.ConfigLoader do
   resolved by the consuming notifier at delivery time (RFC-0003 DEC-006).
   """
 
+  @env_var_re ~r/\$\{([A-Z][A-Z0-9_]*)\}/
+
   @spec config_dir() :: String.t()
   def config_dir do
     System.get_env("VIGIL_CONFIG_DIR") ||
       Application.get_env(:vigil, :config_dir, "configs")
+  end
+
+  @spec load() :: {:ok, Config.t()} | {:error, term()}
+  def load, do: load(config_dir())
+
+  @spec load(String.t()) :: {:ok, Config.t()} | {:error, term()}
+  def load(dir) do
+    with {:ok, resources} <- read_resources(dir),
+         :ok <- check_env_vars(resources),
+         {:ok, config} <- Config.validate(resources) do
+      {:ok, config}
+    end
   end
 
   @spec read_resources(String.t()) :: {:ok, [map()]} | {:error, term()}
@@ -26,6 +42,33 @@ defmodule Vigil.Adapters.ConfigLoader do
       true -> dir |> yaml_files() |> parse_files()
     end
   end
+
+  # Presence check only — values are NOT expanded (see moduledoc).
+  @spec check_env_vars([map()]) :: :ok | {:error, {:missing_env_var, String.t()}}
+  defp check_env_vars(resources) do
+    resources
+    |> Enum.flat_map(&referenced_vars/1)
+    |> Enum.uniq()
+    |> Enum.find(&(System.get_env(&1) == nil))
+    |> case do
+      nil -> :ok
+      var -> {:error, {:missing_env_var, var}}
+    end
+  end
+
+  defp referenced_vars(value) when is_map(value),
+    do: value |> Map.values() |> Enum.flat_map(&referenced_vars/1)
+
+  defp referenced_vars(value) when is_list(value),
+    do: Enum.flat_map(value, &referenced_vars/1)
+
+  defp referenced_vars(value) when is_binary(value) do
+    @env_var_re
+    |> Regex.scan(value, capture: :all_but_first)
+    |> List.flatten()
+  end
+
+  defp referenced_vars(_value), do: []
 
   defp yaml_files(dir) do
     {dir, Path.wildcard(Path.join(dir, "**/*.{yml,yaml}")) |> Enum.sort()}

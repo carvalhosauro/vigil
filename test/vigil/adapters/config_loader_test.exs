@@ -57,4 +57,46 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
                ConfigLoader.read_resources("test/fixtures/configs_bad_yaml")
     end
   end
+
+  describe "load/1" do
+    setup do
+      System.put_env("TELEGRAM_TOKEN", "tok")
+      System.put_env("CHAT_ID", "123")
+
+      on_exit(fn ->
+        System.delete_env("TELEGRAM_TOKEN")
+        System.delete_env("CHAT_ID")
+      end)
+    end
+
+    test "loads and validates the full fixture directory" do
+      assert {:ok, %Vigil.Core.Config{} = config} = ConfigLoader.load(@valid_dir)
+      assert Map.has_key?(config.assets, "petr4")
+      assert config.rules["breakout"].cooldown == "10m"
+      assert config.defaults.cooldown == "5m"
+    end
+
+    test "fails when a referenced env var is missing (RFC-0003 DEC-008)" do
+      System.delete_env("CHAT_ID")
+
+      assert {:error, {:missing_env_var, "CHAT_ID"}} = ConfigLoader.load(@valid_dir)
+    end
+
+    test "propagates validation errors from Config" do
+      dir = Path.join(System.tmp_dir!(), "vigil_invalid_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      File.write!(Path.join(dir, "asset.yaml"), """
+      apiVersion: v1
+      kind: Asset
+      metadata:
+        name: petr4
+      spec:
+        provider: yahoo
+      """)
+
+      assert {:error, %Vigil.Core.Config.Error{kind: "Asset"}} = ConfigLoader.load(dir)
+    end
+  end
 end
