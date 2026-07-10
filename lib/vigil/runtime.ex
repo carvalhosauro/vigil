@@ -10,5 +10,5 @@ defmodule Vigil.Runtime do
   use Boundary,
     top_level?: true,
     deps: [Vigil.Core, Vigil.Adapters],
-    exports: []
+    exports: [Supervisor]
 end

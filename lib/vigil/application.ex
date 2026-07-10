@@ -6,7 +6,12 @@ defmodule Vigil.Application do
 
   @impl true
   def start(_type, _args) do
-    children = []
+    children =
+      if Application.get_env(:vigil, :start_runtime, true) do
+        [Vigil.Runtime.Supervisor]
+      else
+        []
+      end
 
     opts = [strategy: :one_for_one, name: Vigil.Supervisor]
     Supervisor.start_link(children, opts)
