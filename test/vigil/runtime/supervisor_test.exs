@@ -39,10 +39,8 @@ defmodule Vigil.Runtime.SupervisorTest do
     assert_receive {[:vigil, :runtime, :cycle, :finished], ^ref, _, %{asset: "petr4"}}, 5_000
   end
 
-  test "fails fast on a missing config dir" do
-    Process.flag(:trap_exit, true)
-
-    assert {:error, _reason} =
+  test "fails fast on a missing config dir with a clean error shape" do
+    assert {:error, {:invalid_config, _reason}} =
              Vigil.Runtime.Supervisor.start_link(config_dir: "test/fixtures/nope")
   end
 end
