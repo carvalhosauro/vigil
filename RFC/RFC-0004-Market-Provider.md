@@ -134,6 +134,9 @@ Minimum fields:
 | close     | float    |
 | price     | float    |
 | volume    | integer  |
+| market_open | boolean | optional |
+
+`market_open` is optional: it is taken from the provider's market-state signal when the API exposes one, and defaults to `true` otherwise (RFC-0015 DEC-010).
 
 This contract is defined in RFC-0002.
 
