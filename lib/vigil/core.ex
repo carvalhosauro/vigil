@@ -18,6 +18,7 @@ defmodule Vigil.Core do
       Derived,
       Duration,
       MarketSnapshot,
+      NotificationPolicy,
       Rule,
       RuleEngine,
       State
