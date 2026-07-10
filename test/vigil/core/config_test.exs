@@ -582,4 +582,68 @@ defmodule Vigil.Core.ConfigTest do
                Map.fetch!(config.rules, "breakout")
     end
   end
+
+  describe "cooldown" do
+    test "rule cooldown is parsed from spec" do
+      rule =
+        rule_resource(%{
+          "spec" => rule_resource()["spec"] |> Map.put("cooldown", "10m")
+        })
+
+      resources = [defaults_resource(), asset_resource(), telegram_resource(), rule]
+
+      assert {:ok, config} = Config.validate(resources)
+      assert config.rules["breakout"].cooldown == "10m"
+    end
+
+    test "rule without cooldown inherits Defaults notifications.cooldown" do
+      defaults =
+        defaults_resource(%{
+          "spec" => %{
+            "polling" => %{"interval" => "1m"},
+            "notifications" => %{"cooldown" => "2m"}
+          }
+        })
+
+      resources = [defaults, asset_resource(), telegram_resource(), rule_resource()]
+
+      assert {:ok, config} = Config.validate(resources)
+      assert config.rules["breakout"].cooldown == "2m"
+    end
+
+    test "falls back to the 5m system default when Defaults omits notifications" do
+      resources = [defaults_resource(), asset_resource(), telegram_resource(), rule_resource()]
+
+      assert {:ok, config} = Config.validate(resources)
+      assert config.rules["breakout"].cooldown == "5m"
+    end
+
+    test "rejects an invalid cooldown duration" do
+      rule =
+        rule_resource(%{
+          "spec" => rule_resource()["spec"] |> Map.put("cooldown", "fast")
+        })
+
+      resources = [defaults_resource(), asset_resource(), telegram_resource(), rule]
+
+      assert {:error,
+              %Config.Error{
+                kind: "Rule",
+                reason: {:invalid_value, "spec.cooldown", :invalid_duration}
+              }} =
+               Config.validate(resources)
+    end
+
+    test "rejects an invalid Defaults notifications.cooldown" do
+      defaults =
+        defaults_resource(%{
+          "spec" => %{
+            "polling" => %{"interval" => "1m"},
+            "notifications" => %{"cooldown" => 5}
+          }
+        })
+
+      assert {:error, %Config.Error{kind: "Defaults"}} = Config.validate([defaults])
+    end
+  end
 end

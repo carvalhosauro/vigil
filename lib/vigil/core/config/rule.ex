@@ -6,7 +6,6 @@ defmodule Vigil.Core.Config.Rule do
   """
 
   @enforce_keys [:name, :asset, :condition, :actions]
-  defstruct @enforce_keys
 
   @type action :: String.t()
 
@@ -14,6 +13,9 @@ defmodule Vigil.Core.Config.Rule do
           name: String.t(),
           asset: String.t(),
           condition: map(),
-          actions: [action()]
+          actions: [action()],
+          cooldown: String.t() | nil
         }
+
+  defstruct @enforce_keys ++ [cooldown: nil]
 end

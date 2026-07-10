@@ -4,10 +4,12 @@ defmodule Vigil.Core.Config.Defaults do
   """
 
   @enforce_keys [:name, :interval]
-  defstruct @enforce_keys
 
   @type t :: %__MODULE__{
           name: String.t(),
-          interval: String.t()
+          interval: String.t(),
+          cooldown: String.t()
         }
+
+  defstruct @enforce_keys ++ [cooldown: "5m"]
 end
