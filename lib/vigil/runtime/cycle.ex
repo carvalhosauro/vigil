@@ -9,6 +9,12 @@ defmodule Vigil.Runtime.Cycle do
   A cycle that cannot fetch still advances health state and emits its failure
   (DEC-007). All effects are injected, so the module is testable without
   processes; the AssetWorker runs it inside a monitored Task.
+
+  Dispatch callbacks are expected to return `:ok` without raising. If one
+  raises, the exception is caught, a `[:vigil, :notification, :failed]`
+  telemetry event is emitted with `%{asset: ..., rule: ..., reason: ...}`
+  metadata, and the cycle continues processing remaining rules and writing
+  state (RFC-0015 §12, DEC-003).
   """
 
   alias Vigil.Adapters.Provider.Error
@@ -18,6 +24,14 @@ defmodule Vigil.Runtime.Cycle do
 
   @online_threshold 5
 
+  @typedoc """
+  Injected dependencies and configuration for a single monitoring cycle.
+
+  The `dispatch` callback should not raise. If it does, the exception is
+  caught, a `[:vigil, :notification, :failed]` telemetry event is emitted,
+  and the cycle continues normally — remaining rules are processed and state
+  is written (RFC-0015 §12, DEC-003).
+  """
   @type input :: %{
           required(:asset) => Asset.t(),
           required(:rules) => [Rule.t()],
@@ -127,7 +141,17 @@ defmodule Vigil.Runtime.Cycle do
     state =
       Enum.reduce(decisions, input.state, fn
         {rule, :notify}, acc ->
-          input.dispatch.(rule, context)
+          try do
+            input.dispatch.(rule, context)
+          rescue
+            e ->
+              Events.emit([:notification, :failed], %{}, %{
+                asset: input.asset.name,
+                rule: rule.name,
+                reason: e
+              })
+          end
+
           State.record_notification(acc, rule.name, now)
 
         {_rule, _other}, acc ->

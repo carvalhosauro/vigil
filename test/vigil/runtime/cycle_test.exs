@@ -181,6 +181,38 @@ defmodule Vigil.Runtime.CycleTest do
     end
   end
 
+  describe "dispatch exception containment (RFC-0015 §12, DEC-003)" do
+    test "raising dispatch is caught, remaining rules processed, state advances, failed event emitted" do
+      parent = self()
+      ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :notification, :failed]])
+
+      rule1 = rule(name: "first")
+      rule2 = rule(name: "second")
+
+      dispatch = fn
+        %{name: "first"}, _ctx -> raise "dispatch kaboom"
+        %{name: "second"} = r, _ctx -> send(parent, {:dispatched, r.name})
+      end
+
+      {_report, state} =
+        Cycle.run(%{
+          asset: asset(),
+          rules: [rule1, rule2],
+          state: State.initial(),
+          deadline: System.monotonic_time(:millisecond) + 60_000,
+          fetch: fn _ -> {:ok, snapshot(40.12)} end,
+          dispatch: dispatch,
+          sleep_fun: fn _ms -> :ok end
+        })
+
+      assert_receive {:dispatched, "second"}
+      assert state.health.consecutive_failures == 0
+      assert state.previous_snapshot.price == 40.12
+
+      assert_receive {[:vigil, :notification, :failed], ^ref, _, %{asset: "petr4", rule: "first"}}
+    end
+  end
+
   describe "events (DEC-009)" do
     test "emits provider.request events around the fetch" do
       ref =
