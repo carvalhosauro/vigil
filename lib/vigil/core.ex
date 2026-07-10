@@ -16,6 +16,7 @@ defmodule Vigil.Core do
       Config.Asset,
       Context,
       Derived,
+      Duration,
       MarketSnapshot,
       Rule,
       RuleEngine,
