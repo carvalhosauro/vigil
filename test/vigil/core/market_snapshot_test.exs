@@ -25,4 +25,20 @@ defmodule Vigil.Core.MarketSnapshotTest do
       struct!(MarketSnapshot, symbol: "PETR4.SA")
     end
   end
+
+  test "market_open defaults to true" do
+    snapshot =
+      struct!(MarketSnapshot,
+        symbol: "PETR4.SA",
+        timestamp: ~U[2026-07-01 10:30:00Z],
+        open: 1.0,
+        high: 1.0,
+        low: 1.0,
+        close: 1.0,
+        price: 1.0,
+        volume: 1
+      )
+
+    assert snapshot.market_open == true
+  end
 end

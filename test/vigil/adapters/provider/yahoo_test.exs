@@ -37,6 +37,31 @@ defmodule Vigil.Adapters.Provider.YahooTest do
     [plug: {Test, @stub}]
   end
 
+  defp base_meta do
+    %{
+      "regularMarketTime" => 1_719_833_400,
+      "regularMarketOpen" => 37.9,
+      "regularMarketDayHigh" => 38.6,
+      "regularMarketDayLow" => 37.8,
+      "regularMarketPrice" => 38.42,
+      "chartPreviousClose" => 38.10,
+      "regularMarketVolume" => 845_231
+    }
+  end
+
+  defp fetch_with_meta(extra_meta) when is_map(extra_meta) do
+    meta = Map.merge(base_meta(), extra_meta)
+
+    stub_json(%{
+      "chart" => %{
+        "result" => [%{"meta" => meta}],
+        "error" => nil
+      }
+    })
+
+    Yahoo.fetch(@asset, fetch_opts())
+  end
+
   test "fetch/1 returns a normalized market snapshot" do
     stub_json(fixture("petr4_sa_success.json"))
 
@@ -137,6 +162,23 @@ defmodule Vigil.Adapters.Provider.YahooTest do
 
     assert {:error, %{category: :network, details: %{reason: :econnrefused}}} =
              Yahoo.fetch(@asset, fetch_opts())
+  end
+
+  test "market_open is true when marketState is REGULAR" do
+    assert {:ok, %MarketSnapshot{market_open: true}} =
+             fetch_with_meta(%{"marketState" => "REGULAR"})
+  end
+
+  test "market_open is false for any non-REGULAR state" do
+    assert {:ok, %MarketSnapshot{market_open: false}} =
+             fetch_with_meta(%{"marketState" => "CLOSED"})
+
+    assert {:ok, %MarketSnapshot{market_open: false}} =
+             fetch_with_meta(%{"marketState" => "PRE"})
+  end
+
+  test "market_open defaults to true when marketState is absent (RFC-0015 DEC-010)" do
+    assert {:ok, %MarketSnapshot{market_open: true}} = fetch_with_meta(%{})
   end
 
   test "behaviour callback fetch/1 uses configured req options" do
