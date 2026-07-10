@@ -56,6 +56,16 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
       assert {:error, {:yaml_error, "test/fixtures/configs_bad_yaml/broken.yaml", _}} =
                ConfigLoader.read_resources("test/fixtures/configs_bad_yaml")
     end
+
+    test "single non-map YAML document (scalar) reports not_a_map" do
+      assert {:error, {:yaml_error, "test/fixtures/configs_scalar_doc/scalar.yaml", :not_a_map}} =
+               ConfigLoader.read_resources("test/fixtures/configs_scalar_doc")
+    end
+
+    test "multi-document YAML file reports multiple_documents" do
+      assert {:error, {:multiple_documents, "test/fixtures/configs_multi_doc/multi.yaml"}} =
+               ConfigLoader.read_resources("test/fixtures/configs_multi_doc")
+    end
   end
 
   describe "load/1" do
@@ -79,7 +89,15 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
     test "fails when a referenced env var is missing (RFC-0003 DEC-008)" do
       System.delete_env("CHAT_ID")
 
-      assert {:error, {:missing_env_var, "CHAT_ID"}} = ConfigLoader.load(@valid_dir)
+      assert {:error, {:missing_env_vars, ["CHAT_ID"]}} = ConfigLoader.load(@valid_dir)
+    end
+
+    test "reports ALL missing env vars at once instead of stopping at the first" do
+      System.delete_env("TELEGRAM_TOKEN")
+      System.delete_env("CHAT_ID")
+
+      assert {:error, {:missing_env_vars, vars}} = ConfigLoader.load(@valid_dir)
+      assert Enum.sort(vars) == ["CHAT_ID", "TELEGRAM_TOKEN"]
     end
 
     test "propagates validation errors from Config" do

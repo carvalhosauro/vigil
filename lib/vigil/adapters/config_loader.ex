@@ -44,15 +44,15 @@ defmodule Vigil.Adapters.ConfigLoader do
   end
 
   # Presence check only — values are NOT expanded (see moduledoc).
-  @spec check_env_vars([map()]) :: :ok | {:error, {:missing_env_var, String.t()}}
+  @spec check_env_vars([map()]) :: :ok | {:error, {:missing_env_vars, [String.t()]}}
   defp check_env_vars(resources) do
     resources
     |> Enum.flat_map(&referenced_vars/1)
     |> Enum.uniq()
-    |> Enum.find(&(System.get_env(&1) == nil))
+    |> Enum.filter(&(System.get_env(&1) == nil))
     |> case do
-      nil -> :ok
-      var -> {:error, {:missing_env_var, var}}
+      [] -> :ok
+      vars -> {:error, {:missing_env_vars, vars}}
     end
   end
 
@@ -92,7 +92,7 @@ defmodule Vigil.Adapters.ConfigLoader do
   defp parse_file(path) do
     case YamlElixir.read_all_from_file(path) do
       {:ok, [doc]} when is_map(doc) -> {:ok, doc}
-      {:ok, [_ | _]} -> {:error, {:multiple_documents, path}}
+      {:ok, [_, _ | _]} -> {:error, {:multiple_documents, path}}
       {:ok, _} -> {:error, {:yaml_error, path, :not_a_map}}
       {:error, reason} -> {:error, {:yaml_error, path, reason}}
     end
