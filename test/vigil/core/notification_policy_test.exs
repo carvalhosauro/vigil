@@ -54,5 +54,19 @@ defmodule Vigil.Core.NotificationPolicyTest do
                input(previous: %RuleStatus{satisfied: false}, notification: notification)
              ) == :notify
     end
+
+    test "raises ArgumentError with the bad cooldown value when duration is invalid" do
+      notification = %NotificationStatus{last_notified_at: DateTime.add(@now, -60, :second)}
+
+      assert_raise ArgumentError, ~r/invalid cooldown duration/, fn ->
+        NotificationPolicy.decide(
+          input(
+            previous: %RuleStatus{satisfied: false},
+            notification: notification,
+            cooldown: "0s"
+          )
+        )
+      end
+    end
   end
 end

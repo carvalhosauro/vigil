@@ -8,6 +8,7 @@ defmodule Vigil.Core.Config do
   """
 
   alias Vigil.Core.Config.{Asset, Defaults, Error, Rule, Telegram}
+  alias Vigil.Core.Duration
 
   @enforce_keys [:assets, :rules, :telegrams, :defaults]
   defstruct @enforce_keys
@@ -21,7 +22,6 @@ defmodule Vigil.Core.Config do
   @market_fields ~w(price open high low close volume)
   @derived_fields ~w(change change_percent daily_range volume_delta)
   @runtime_fields ~w(market_open provider_online last_update consecutive_failures)
-  @duration_re ~r/^\d+[smh]$/
   @default_cooldown "5m"
   @name_re ~r/^[a-z0-9]+(-[a-z0-9]+)*$/
   @env_var_re ~r/^\$\{[A-Z][A-Z0-9_]*\}$/
@@ -551,10 +551,9 @@ defmodule Vigil.Core.Config do
   @spec validate_duration(term(), String.t(), String.t(), String.t()) ::
           :ok | {:error, Error.t()}
   defp validate_duration(value, kind, name, path) when is_binary(value) do
-    if Regex.match?(@duration_re, value) do
-      :ok
-    else
-      error_result(kind, name, {:invalid_value, path, :invalid_duration})
+    case Duration.to_ms(value) do
+      {:ok, _} -> :ok
+      :error -> error_result(kind, name, {:invalid_value, path, :invalid_duration})
     end
   end
 

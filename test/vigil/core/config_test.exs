@@ -196,6 +196,23 @@ defmodule Vigil.Core.ConfigTest do
               }} = Config.validate(valid_bundle(asset: asset))
     end
 
+    test "rejects zero duration values (0s/0m/0h are invalid)" do
+      for zero <- ["0s", "0m", "0h"] do
+        asset =
+          asset_resource(%{
+            "spec" => %{"symbol" => "PETR4.SA", "provider" => "yahoo", "interval" => zero}
+          })
+
+        assert {:error,
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:invalid_value, "spec.interval", :invalid_duration}
+                }} = Config.validate(valid_bundle(asset: asset)),
+               "expected #{zero} to be rejected as an invalid duration"
+      end
+    end
+
     test "rejects missing asset reference from rules" do
       rule = rule_resource(%{"spec" => Map.put(rule_resource()["spec"], "asset", "missing")})
 
