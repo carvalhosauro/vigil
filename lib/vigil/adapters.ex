@@ -12,8 +12,10 @@ defmodule Vigil.Adapters do
     exports: [
       ConfigLoader,
       Notifier,
+      Notifier.Error,
       Notifier.Log,
       Notifier.Registry,
+      Notifier.Telegram,
       Provider,
       Provider.Error,
       Provider.Registry,
