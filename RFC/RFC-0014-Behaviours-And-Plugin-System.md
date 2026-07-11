@@ -67,7 +67,7 @@ classDiagram
     }
     class Notifier {
         <<behaviour>>
-        notify(action, context) {:ok, delivery} | {:error, reason}
+        notify(action, context, channel_config) {:ok, delivery} | {:error, reason}
     }
     Core ..> Provider : depends on
     Core ..> Indicator : depends on
@@ -113,7 +113,7 @@ An Indicator is pure and deterministic over its input window.
 A Notifier implements:
 
 ```text
-notify(action, context) -> {:ok, delivery} | {:error, reason}
+notify(action, context, channel_config) -> {:ok, delivery} | {:error, reason}
 ```
 
 Defined in RFC-0007 §6.

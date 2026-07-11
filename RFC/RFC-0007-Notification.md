@@ -82,7 +82,7 @@ Every Notifier implements the same behavior.
 Conceptually:
 
 ```text
-notify(action, context)
+notify(action, context, channel_config)
 ```
 
 Returns:
