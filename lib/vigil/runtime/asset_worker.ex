@@ -41,6 +41,7 @@ defmodule Vigil.Runtime.AssetWorker do
     state = %{
       asset: asset,
       rules: Keyword.fetch!(opts, :rules),
+      channel_configs: Keyword.get(opts, :channel_configs, %{}),
       cycle_task_supervisor: Keyword.fetch!(opts, :cycle_task_supervisor),
       dispatch_task_supervisor: Keyword.fetch!(opts, :dispatch_task_supervisor),
       interval_ms: interval_ms,
@@ -140,13 +141,16 @@ defmodule Vigil.Runtime.AssetWorker do
   defp build_dispatch(state) do
     dispatch_supervisor = state.dispatch_task_supervisor
     asset_name = state.asset.name
+    channel_configs = state.channel_configs
 
     fn rule, context ->
       Enum.each(rule.actions, fn action ->
         case Notifier.Registry.fetch(action) do
           {:ok, notifier} ->
+            channel_config = Map.get(channel_configs, action)
+
             case Task.Supervisor.start_child(dispatch_supervisor, fn ->
-                   deliver(notifier, rule, context, asset_name)
+                   deliver(notifier, rule, context, channel_config, asset_name)
                  end) do
               {:ok, _pid} ->
                 :ok
@@ -172,8 +176,8 @@ defmodule Vigil.Runtime.AssetWorker do
     end
   end
 
-  defp deliver(notifier, rule, context, asset_name) do
-    case notifier.notify(rule, context) do
+  defp deliver(notifier, rule, context, channel_config, asset_name) do
+    case notifier.notify(rule, context, channel_config) do
       {:ok, delivery} ->
         Events.emit([:notification, :sent], %{}, %{
           asset: asset_name,
