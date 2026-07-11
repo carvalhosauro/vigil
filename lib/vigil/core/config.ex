@@ -8,6 +8,7 @@ defmodule Vigil.Core.Config do
   """
 
   alias Vigil.Core.Config.{Asset, Defaults, Error, Rule, Telegram}
+  alias Vigil.Core.Duration
 
   @enforce_keys [:assets, :rules, :telegrams, :defaults]
   defstruct @enforce_keys
@@ -21,7 +22,7 @@ defmodule Vigil.Core.Config do
   @market_fields ~w(price open high low close volume)
   @derived_fields ~w(change change_percent daily_range volume_delta)
   @runtime_fields ~w(market_open provider_online last_update consecutive_failures)
-  @duration_re ~r/^\d+[smh]$/
+  @default_cooldown "5m"
   @name_re ~r/^[a-z0-9]+(-[a-z0-9]+)*$/
   @env_var_re ~r/^\$\{[A-Z][A-Z0-9_]*\}$/
 
@@ -93,11 +94,11 @@ defmodule Vigil.Core.Config do
   defp put_parsed(acc, "Telegram", {name, telegram}),
     do: put_in(acc, [:telegrams, name], telegram)
 
-  defp put_parsed(acc, "Defaults", {name, defaults}) do
+  defp put_parsed(acc, "Defaults", {_name, defaults}) do
     if acc.defaults != nil do
       acc
     else
-      Map.put(acc, :defaults, %Defaults{name: name, interval: defaults.interval})
+      Map.put(acc, :defaults, defaults)
     end
   end
 
@@ -182,8 +183,16 @@ defmodule Vigil.Core.Config do
   defp parse_defaults(resource, name) do
     spec = fetch(resource, "spec")
 
-    with :ok <- reject_unknown_fields(spec, ~w(polling), "Defaults", name, "spec"),
-         :ok <- require_map_field(spec, "polling", "Defaults", name, "spec.polling"),
+    with :ok <- reject_unknown_fields(spec, ~w(polling notifications), "Defaults", name, "spec"),
+         {:ok, interval} <- parse_polling(spec, name),
+         {:ok, cooldown} <- parse_notifications(spec, name) do
+      {:ok, {name, %Defaults{name: name, interval: interval, cooldown: cooldown}}}
+    end
+  end
+
+  @spec parse_polling(map(), String.t()) :: {:ok, String.t()} | {:error, Error.t()}
+  defp parse_polling(spec, name) do
+    with :ok <- require_map_field(spec, "polling", "Defaults", name, "spec.polling"),
          polling <- fetch(spec, "polling"),
          :ok <- reject_unknown_fields(polling, ~w(interval), "Defaults", name, "spec.polling"),
          :ok <- require_string(polling, "interval", "Defaults", name, "spec.polling.interval"),
@@ -194,7 +203,38 @@ defmodule Vigil.Core.Config do
              name,
              "spec.polling.interval"
            ) do
-      {:ok, {name, %Defaults{name: name, interval: fetch(polling, "interval")}}}
+      {:ok, fetch(polling, "interval")}
+    end
+  end
+
+  @spec parse_notifications(map(), String.t()) :: {:ok, String.t()} | {:error, Error.t()}
+  defp parse_notifications(spec, name) do
+    case fetch(spec, "notifications") do
+      nil ->
+        {:ok, @default_cooldown}
+
+      notifications when is_map(notifications) ->
+        with :ok <-
+               reject_unknown_fields(
+                 notifications,
+                 ~w(cooldown),
+                 "Defaults",
+                 name,
+                 "spec.notifications"
+               ),
+             :ok <-
+               validate_optional_duration(
+                 notifications,
+                 "cooldown",
+                 "Defaults",
+                 name,
+                 "spec.notifications.cooldown"
+               ) do
+          {:ok, fetch(notifications, "cooldown") || @default_cooldown}
+        end
+
+      _ ->
+        error_result("Defaults", name, {:invalid_type, "spec.notifications", "map"})
     end
   end
 
@@ -222,21 +262,24 @@ defmodule Vigil.Core.Config do
   defp parse_rule(resource, name) do
     spec = fetch(resource, "spec")
 
-    with :ok <- reject_unknown_fields(spec, ~w(asset when actions), "Rule", name, "spec"),
+    with :ok <-
+           reject_unknown_fields(spec, ~w(asset when actions cooldown), "Rule", name, "spec"),
          :ok <- require_string(spec, "asset", "Rule", name, "spec.asset"),
          :ok <- require_map_field(spec, "when", "Rule", name, "spec.when"),
          when_clause <- fetch(spec, "when"),
          {:ok, condition} <- validate_condition(when_clause, "Rule", name, "spec.when"),
          :ok <- require_list(spec, "actions", "Rule", name, "spec.actions"),
          actions <- fetch(spec, "actions"),
-         :ok <- validate_actions(actions, "Rule", name, "spec.actions") do
+         :ok <- validate_actions(actions, "Rule", name, "spec.actions"),
+         :ok <- validate_optional_duration(spec, "cooldown", "Rule", name, "spec.cooldown") do
       {:ok,
        {name,
         %Rule{
           name: name,
           asset: fetch(spec, "asset"),
           condition: condition,
-          actions: actions
+          actions: actions,
+          cooldown: fetch(spec, "cooldown")
         }}}
     end
   end
@@ -244,6 +287,7 @@ defmodule Vigil.Core.Config do
   @spec resolve(map()) :: {:ok, t()} | {:error, Error.t()}
   defp resolve(%{assets: assets, rules: rules, telegrams: telegrams, defaults: defaults}) do
     with {:ok, assets} <- resolve_asset_intervals(assets, defaults),
+         {:ok, rules} <- resolve_rule_cooldowns(rules, defaults),
          {:ok, _} <- validate_asset_references(rules, assets),
          {:ok, _} <- validate_notifier_references(rules, telegrams) do
       {:ok,
@@ -254,6 +298,27 @@ defmodule Vigil.Core.Config do
          defaults: defaults
        }}
     end
+  end
+
+  @spec resolve_rule_cooldowns(%{String.t() => Rule.t()}, Defaults.t() | nil) ::
+          {:ok, %{String.t() => Rule.t()}} | {:error, Error.t()}
+  defp resolve_rule_cooldowns(rules, defaults) do
+    default_cooldown =
+      case defaults do
+        %Defaults{cooldown: cooldown} -> cooldown
+        nil -> @default_cooldown
+      end
+
+    {:ok,
+     Map.new(rules, fn {name, rule} ->
+       cooldown =
+         case rule.cooldown do
+           nil -> default_cooldown
+           explicit -> explicit
+         end
+
+       {name, %{rule | cooldown: cooldown}}
+     end)}
   end
 
   @spec resolve_asset_intervals(%{String.t() => Asset.t()}, Defaults.t() | nil) ::
@@ -486,10 +551,9 @@ defmodule Vigil.Core.Config do
   @spec validate_duration(term(), String.t(), String.t(), String.t()) ::
           :ok | {:error, Error.t()}
   defp validate_duration(value, kind, name, path) when is_binary(value) do
-    if Regex.match?(@duration_re, value) do
-      :ok
-    else
-      error_result(kind, name, {:invalid_value, path, :invalid_duration})
+    case Duration.to_ms(value) do
+      {:ok, _} -> :ok
+      :error -> error_result(kind, name, {:invalid_value, path, :invalid_duration})
     end
   end
 

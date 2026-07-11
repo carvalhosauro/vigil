@@ -239,7 +239,7 @@ The cycle does not wait for delivery.
 
 * Delivery failure emits `notification.failed` and never aborts monitoring (RFC-0013 DEC-003).
 * Delivery retry is owned by the Runtime on the Notifier's behalf, with the same backoff table (§10), bounded to the cooldown window (RFC-0007 §9).
-* Dedup and cooldown decisions happen before dispatch, using notification state (RFC-0012 §4).
+* Dedup and cooldown decisions happen before dispatch, using notification state (RFC-0012 §4); the decision is computed by the pure `Vigil.Core.NotificationPolicy` (RFC-0007 §9).
 
 ---
 

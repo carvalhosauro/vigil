@@ -14,9 +14,12 @@ defmodule Vigil.Core do
     exports: [
       Config,
       Config.Asset,
+      Config.Rule,
       Context,
       Derived,
+      Duration,
       MarketSnapshot,
+      NotificationPolicy,
       Rule,
       RuleEngine,
       State

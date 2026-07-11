@@ -135,7 +135,8 @@ defmodule Vigil.Adapters.Provider.Yahoo do
          low: low,
          close: close,
          price: price,
-         volume: volume
+         volume: volume,
+         market_open: parse_market_open(meta)
        }}
     end
   end
@@ -190,6 +191,13 @@ defmodule Vigil.Adapters.Provider.Yahoo do
   defp parse_volume(value, symbol) do
     error(:invalid_response, "invalid regularMarketVolume", symbol, %{value: value})
   end
+
+  # Yahoo marketState: REGULAR is the only open session; PRE/POST/CLOSED etc.
+  # are treated as closed. Absent field defaults to open (RFC-0015 DEC-010).
+  defp parse_market_open(%{"marketState" => state}) when is_binary(state),
+    do: state == "REGULAR"
+
+  defp parse_market_open(_meta), do: true
 
   defp classify_request_error(%Req.TransportError{reason: :timeout}, symbol) do
     error(:timeout, "yahoo request timed out", symbol)

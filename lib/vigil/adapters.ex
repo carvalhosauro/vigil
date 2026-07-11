@@ -9,5 +9,13 @@ defmodule Vigil.Adapters do
   use Boundary,
     top_level?: true,
     deps: [Vigil.Core],
-    exports: [Provider, Provider.Error, Provider.Registry, Provider.Yahoo]
+    exports: [
+      Notifier,
+      Notifier.Log,
+      Notifier.Registry,
+      Provider,
+      Provider.Error,
+      Provider.Registry,
+      Provider.Yahoo
+    ]
 end
