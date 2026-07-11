@@ -1,10 +1,11 @@
 defmodule Vigil.Adapters.Notifier.Log do
   @moduledoc """
-  Log-only Notifier — this milestone's stand-in delivery channel.
+  Log-only Notifier — a dev/testing delivery channel.
 
   Renders the RFC-0007 §7 default template (`Vigil.Adapters.Notifier.Message`)
   and writes it to the logger. Needs no channel configuration and ignores it.
-  The real Telegram notifier replaces it in the registry in a later milestone.
+  Not registered by default; wire it in via the `:vigil, :notifiers` app-env
+  override (see `Vigil.Adapters.Notifier.Registry`).
   """
 
   @behaviour Vigil.Adapters.Notifier

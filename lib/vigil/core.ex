@@ -15,6 +15,7 @@ defmodule Vigil.Core do
       Config,
       Config.Asset,
       Config.Rule,
+      Config.Telegram,
       Context,
       Derived,
       Duration,

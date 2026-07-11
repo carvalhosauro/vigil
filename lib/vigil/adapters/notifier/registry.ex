@@ -4,11 +4,11 @@ defmodule Vigil.Adapters.Notifier.Registry do
 
   Static compile-time map with an app-env override merged over it, mirroring
   `Vigil.Adapters.Provider.Registry` (RFC-0014 §10). `"telegram"` maps to the
-  log notifier until the real Telegram notifier lands.
+  Telegram notifier (RFC-0007 §8).
   """
 
   @default_notifiers %{
-    "telegram" => Vigil.Adapters.Notifier.Log
+    "telegram" => Vigil.Adapters.Notifier.Telegram
   }
 
   @spec fetch(String.t()) :: {:ok, module()} | :error

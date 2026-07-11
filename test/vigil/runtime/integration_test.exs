@@ -23,11 +23,13 @@ defmodule Vigil.Runtime.IntegrationTest do
     System.put_env("TELEGRAM_TOKEN", "tok")
     System.put_env("CHAT_ID", "123")
     Application.put_env(:vigil, :providers, %{"yahoo" => BreakoutProvider})
+    Application.put_env(:vigil, :notifiers, %{"telegram" => Vigil.Adapters.Notifier.Log})
 
     on_exit(fn ->
       System.delete_env("TELEGRAM_TOKEN")
       System.delete_env("CHAT_ID")
       Application.delete_env(:vigil, :providers)
+      Application.delete_env(:vigil, :notifiers)
     end)
 
     ref =

@@ -7,12 +7,16 @@ defmodule Vigil.Adapters.Notifier.RegistryTest do
     @moduledoc false
   end
 
-  test "telegram resolves to the log notifier until the real one lands" do
-    assert Registry.fetch("telegram") == {:ok, Vigil.Adapters.Notifier.Log}
+  test "telegram resolves to the Telegram notifier" do
+    assert Registry.fetch("telegram") == {:ok, Vigil.Adapters.Notifier.Telegram}
   end
 
   test "unknown names return :error" do
     assert Registry.fetch("smoke-signal") == :error
+  end
+
+  test "all/0 lists every registered notifier name" do
+    assert Registry.all() == ["telegram"]
   end
 
   test "app env overrides merge over the built-in map" do
@@ -20,6 +24,6 @@ defmodule Vigil.Adapters.Notifier.RegistryTest do
     on_exit(fn -> Application.delete_env(:vigil, :notifiers) end)
 
     assert Registry.fetch("custom") == {:ok, SomeModule}
-    assert Registry.fetch("telegram") == {:ok, Vigil.Adapters.Notifier.Log}
+    assert Registry.fetch("telegram") == {:ok, Vigil.Adapters.Notifier.Telegram}
   end
 end
