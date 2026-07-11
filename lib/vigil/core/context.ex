@@ -54,15 +54,21 @@ defmodule Vigil.Core.Context do
 
   @spec derive(MarketSnapshot.t(), MarketSnapshot.t() | nil) :: Derived.t()
   defp derive(%MarketSnapshot{} = s, previous_snapshot) do
-    change = s.price - s.open
-
     %Derived{
-      change: change,
-      change_percent: percent(change, s.open),
+      change: change(s),
+      change_percent: change_percent(s),
       daily_range: s.high - s.low,
       volume_delta: volume_delta(s, previous_snapshot)
     }
   end
+
+  @spec change(MarketSnapshot.t()) :: float() | nil
+  defp change(%MarketSnapshot{open: nil}), do: nil
+  defp change(%MarketSnapshot{} = s), do: s.price - s.open
+
+  @spec change_percent(MarketSnapshot.t()) :: float() | nil
+  defp change_percent(%MarketSnapshot{open: nil}), do: nil
+  defp change_percent(%MarketSnapshot{} = s), do: percent(s.price - s.open, s.open)
 
   @spec volume_delta(MarketSnapshot.t(), MarketSnapshot.t() | nil) :: number() | nil
   defp volume_delta(_current, nil), do: nil
