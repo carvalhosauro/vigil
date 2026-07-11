@@ -62,7 +62,7 @@ defmodule Vigil.Core.Context do
     }
   end
 
-  @spec change(MarketSnapshot.t()) :: float() | nil
+  @spec change(MarketSnapshot.t()) :: number() | nil
   defp change(%MarketSnapshot{open: nil}), do: nil
   defp change(%MarketSnapshot{} = s), do: s.price - s.open
 
