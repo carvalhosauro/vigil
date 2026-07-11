@@ -87,6 +87,7 @@ defmodule Vigil.Adapters.Notifier.TelegramTest do
       {:ok, raw_body, conn} = Conn.read_body(conn)
       body = Jason.decode!(raw_body)
 
+      assert conn.request_path == "/bot#{@token}/sendMessage"
       assert body["chat_id"] == @chat_id
       assert body["text"] =~ "petr4 — breakout"
       refute Map.has_key?(body, "parse_mode")
@@ -220,6 +221,21 @@ defmodule Vigil.Adapters.Notifier.TelegramTest do
 
     assert {:error, %{category: :network, details: %{reason: :econnrefused}}} =
              Telegram.notify(rule(), context(), channel_config(), notify_opts())
+  end
+
+  test "reduces unknown request errors to their type without echoing the request" do
+    # An adapter returning an error term this module does not classify — the
+    # exception embeds the request (and so the token-bearing URL).
+    adapter = fn request ->
+      {request, %RuntimeError{message: "boom #{request.url}"}}
+    end
+
+    assert {:error, error} =
+             Telegram.notify(rule(), context(), channel_config(), adapter: adapter)
+
+    assert error.category == :invalid_response
+    assert error.details.reason == "RuntimeError"
+    refute inspect(error) =~ @token
   end
 
   test "returns configuration error with the var name when token env var is missing" do

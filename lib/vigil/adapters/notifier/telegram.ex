@@ -27,7 +27,9 @@ defmodule Vigil.Adapters.Notifier.Telegram do
 
   @notifier "telegram"
   @base_url "https://api.telegram.org"
-  @env_var_pattern ~r/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/
+  # Same character set as `Vigil.Core.Config`'s env-var rule, so both layers
+  # agree on what a reference looks like.
+  @env_var_pattern ~r/\$\{([A-Z][A-Z0-9_]*)\}/
 
   @impl Vigil.Adapters.Notifier
   def notify(%Rule{} = rule, %Context{} = context, %Config.Telegram{} = channel_config),
@@ -140,8 +142,12 @@ defmodule Vigil.Adapters.Notifier.Telegram do
     error(:invalid_response, "telegram response is not valid JSON", %{reason: reason})
   end
 
-  defp classify_request_error(reason) do
-    error(:invalid_response, "telegram request failed", %{reason: reason})
+  # Fallback for exceptions this module does not know (`Req.post` errors are
+  # always exceptions). The request URL carries the bot token, so an unknown
+  # exception is reduced to its type instead of being embedded raw — it could
+  # echo the request.
+  defp classify_request_error(%struct{}) do
+    error(:invalid_response, "telegram request failed", %{reason: inspect(struct)})
   end
 
   defp expand_env(value, field) do
