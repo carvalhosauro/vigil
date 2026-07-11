@@ -118,6 +118,21 @@ defmodule Vigil.Adapters.Provider.YahooTest do
              Yahoo.fetch(@asset, fetch_opts())
   end
 
+  test "open is nil when regularMarketOpen is absent" do
+    assert {:ok, %MarketSnapshot{open: nil, close: 38.10, price: 38.42}} =
+             fetch_with_meta(%{"regularMarketOpen" => nil, "chartPreviousClose" => 38.10})
+  end
+
+  test "open of zero is kept, not treated as missing" do
+    assert {:ok, %MarketSnapshot{} = snapshot} = fetch_with_meta(%{"regularMarketOpen" => 0})
+    assert snapshot.open == 0.0
+  end
+
+  test "returns invalid_response when regularMarketOpen is present but not numeric" do
+    assert {:error, %{category: :invalid_response, details: %{field: "open"}}} =
+             fetch_with_meta(%{"regularMarketOpen" => "n/a"})
+  end
+
   test "returns invalid_response for malformed JSON body" do
     Test.stub(@stub, fn conn ->
       Test.text(conn, "not-json")

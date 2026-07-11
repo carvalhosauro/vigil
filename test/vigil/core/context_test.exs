@@ -34,6 +34,13 @@ defmodule Vigil.Core.ContextTest do
       assert ctx.derived.change_percent == 0.0
     end
 
+    test "change and change_percent are nil when the snapshot has no open" do
+      ctx = Context.build(snapshot(open: nil), asset: "petr4", provider: "yahoo")
+
+      assert ctx.derived.change == nil
+      assert ctx.derived.change_percent == nil
+    end
+
     test "volume_delta is nil on the first cycle" do
       ctx = Context.build(snapshot(), asset: "petr4", provider: "yahoo")
 
