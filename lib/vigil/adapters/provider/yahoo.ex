@@ -8,9 +8,13 @@ defmodule Vigil.Adapters.Provider.Yahoo do
   Snapshot semantics for a point-in-time poll:
 
     * `price` maps to `regularMarketPrice` (the last price).
+    * `open` maps to `regularMarketOpen`, and is `nil` when Yahoo omits it
+      (common outside regular trading hours). Consumers treat a `nil` field as
+      "not available" (RFC-0001 §12) — derived metrics become `nil` and rules
+      referencing them do not fire.
     * `close` maps to `chartPreviousClose`/`previousClose` (the previous session
       close), falling back to `price` when the API omits both.
-    * OHLCV fields are taken from `meta` without further calculation.
+    * `high`, `low`, and `volume` are taken from `meta` when present.
 
   Telemetry (`provider.request.*`) is documented on the behaviour and wired in
   Phase 8 — not emitted here.
@@ -27,7 +31,6 @@ defmodule Vigil.Adapters.Provider.Yahoo do
 
   @required_meta_fields ~w(
     regularMarketTime
-    regularMarketOpen
     regularMarketDayHigh
     regularMarketDayLow
     regularMarketPrice
@@ -120,11 +123,11 @@ defmodule Vigil.Adapters.Provider.Yahoo do
   defp build_snapshot(symbol, meta) do
     with :ok <- validate_meta(meta, symbol),
          {:ok, timestamp} <- parse_timestamp(meta["regularMarketTime"], symbol),
-         {:ok, open} <- parse_float(meta["regularMarketOpen"], "open", symbol),
+         {:ok, price} <- parse_float(meta["regularMarketPrice"], "price", symbol),
          {:ok, high} <- parse_float(meta["regularMarketDayHigh"], "high", symbol),
          {:ok, low} <- parse_float(meta["regularMarketDayLow"], "low", symbol),
-         {:ok, price} <- parse_float(meta["regularMarketPrice"], "price", symbol),
          {:ok, close} <- parse_close(meta, price, symbol),
+         {:ok, open} <- parse_open(meta, symbol),
          {:ok, volume} <- parse_volume(meta["regularMarketVolume"], symbol) do
       {:ok,
        %MarketSnapshot{
@@ -172,6 +175,13 @@ defmodule Vigil.Adapters.Provider.Yahoo do
 
   defp parse_float(value, field, symbol),
     do: error(:invalid_response, "invalid #{field}", symbol, %{field: field, value: value})
+
+  defp parse_open(meta, symbol) do
+    case meta["regularMarketOpen"] do
+      nil -> {:ok, nil}
+      value -> parse_float(value, "open", symbol)
+    end
+  end
 
   defp parse_close(meta, price, symbol) do
     case meta["chartPreviousClose"] || meta["previousClose"] do
