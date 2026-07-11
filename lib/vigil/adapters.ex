@@ -10,6 +10,7 @@ defmodule Vigil.Adapters do
     top_level?: true,
     deps: [Vigil.Core],
     exports: [
+      ConfigLoader,
       Notifier,
       Notifier.Log,
       Notifier.Registry,

@@ -88,17 +88,17 @@ Each Kind defines its own schema.
 
 ## 3.5 Variable Interpolation
 
-Any string value in a `spec` may reference an environment variable using `${VAR}` syntax.
+Secret credential fields (e.g., Telegram `token` and `chat_id`) may reference an environment variable using `${VAR}` syntax.
 
-* **When** — interpolation happens at **parse time**, before validation.
-* **Missing variable** — if `${VAR}` resolves to nothing, it is a **validation error**: the resource is rejected and (on reload) the previous valid configuration keeps running (§10). The literal `${VAR}` is never passed through.
-* **Scope** — interpolation applies to all string fields, not only secrets. Secrets (tokens, chat IDs) are the primary use (§5.3, DEC-006), but any field may reference the environment.
+* **Parse time** — the loader checks that every referenced `${VAR}` is present in the environment. A missing variable is a **validation error**: the resource is rejected and (on reload) the previous valid configuration keeps running (§10). All missing variables are reported at once.
+* **Expansion** — the literal `${VAR}` is **not** replaced at parse time. It is stored as-is in the parsed config and resolved by the consuming notifier at **delivery time** (DEC-006).
+* **Scope** — variable references are only meaningful in secret fields (tokens, chat IDs). Other fields that happen to contain `${VAR}` syntax will be presence-checked but the literal value will be forwarded to the notifier unchanged.
 
 Example:
 
 ```yaml
 spec:
-  token: ${TELEGRAM_TOKEN}   # expanded at parse; missing → validation error
+  token: ${TELEGRAM_TOKEN}   # presence checked at parse; expanded at delivery
 ```
 
 ---
@@ -435,4 +435,4 @@ The CRD structure is considered a public API and must preserve compatibility acr
 
 ## DEC-008
 
-Environment variables in `${VAR}` form are expanded at parse time; a missing variable is a validation error, never a literal passthrough.
+Environment variables in `${VAR}` form are **checked for presence** at parse time; a missing variable is a validation error and all missing variables are reported at once. Expansion is **deferred to delivery time** and applies only to secret fields (e.g., Telegram credentials). The literal `${VAR}` is passed through in the parsed config and resolved by the consuming notifier.
