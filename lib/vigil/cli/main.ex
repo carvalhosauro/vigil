@@ -5,8 +5,9 @@ defmodule Vigil.CLI.Main do
   `main/1` is the escript entry point: it boots the `:vigil` application
   without starting the Runtime (validate/version never need it — see
   `mix.exs` `escript: [app: nil]`), delegates to `run/1`, writes the result
-  to stdio, and halts. `run/1` is pure — it never touches stdio or the VM —
-  so it is the only part exercised in tests; `main/1` must never run under
+  to stdio, and halts. `run/1` never touches stdio or halts (it may configure
+  the Logger when `--log-level` is given), so it is what tests exercise;
+  `main/1` must never run under
   ExUnit (`System.halt/1` would kill the test VM). `boot/0` and `print/2` are
   the pieces of `main/1` that don't halt, split out so they can still be
   exercised directly.

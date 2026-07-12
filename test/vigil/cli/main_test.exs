@@ -41,6 +41,14 @@ defmodule Vigil.CLI.MainTest do
                {"ok: 1 assets, 1 rules, 1 notifiers\n", "", 0}
     end
 
+    test "--config wins over a set VIGIL_CONFIG_DIR (RFC-0010 §5)" do
+      System.put_env("VIGIL_CONFIG_DIR", "/nonexistent-from-env")
+      on_exit(fn -> System.delete_env("VIGIL_CONFIG_DIR") end)
+
+      assert Main.run(["validate", "--config", @valid_dir]) ==
+               {"ok: 1 assets, 1 rules, 1 notifiers\n", "", 0}
+    end
+
     test "nonexistent config dir exits 2" do
       assert {"", stderr, 2} = Main.run(["validate", "--config", "/nonexistent"])
       assert IO.iodata_to_binary(stderr) =~ "configuration directory not found"

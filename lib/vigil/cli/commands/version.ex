@@ -13,9 +13,10 @@ defmodule Vigil.CLI.Commands.Version do
     # module isn't exported from the `Vigil` boundary to `Vigil.CLI`.
     vsn = :vigil |> Application.spec(:vsn) |> to_string()
 
+    # `Main` validates --format; anything else falls back to text.
     case Keyword.get(opts, :format, "text") do
-      "text" -> {"vigil #{vsn}\n", "", 0}
       "json" -> {Jason.encode!(%{vigil: vsn}) <> "\n", "", 0}
+      _text -> {"vigil #{vsn}\n", "", 0}
     end
   end
 end
