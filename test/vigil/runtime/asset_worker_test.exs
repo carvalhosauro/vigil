@@ -31,6 +31,53 @@ defmodule Vigil.Runtime.AssetWorkerTest do
     end
   end
 
+  alias Vigil.Adapters.Notifier.Error, as: NotifierError
+
+  # A :counters ref survives independently of any linked test process, so
+  # attempt tracking here is immune to the teardown-ordering races that a
+  # test-linked Agent would introduce.
+  defp start_counter(notifier) do
+    counter = :counters.new(1, [])
+    :persistent_term.put({notifier, :counter}, counter)
+    on_exit(fn -> :persistent_term.erase({notifier, :counter}) end)
+    counter
+  end
+
+  @doc false
+  def bump_attempts(notifier) do
+    counter = :persistent_term.get({notifier, :counter})
+    :counters.add(counter, 1, 1)
+    :counters.get(counter, 1)
+  end
+
+  alias Vigil.Runtime.AssetWorkerTest, as: AttemptCounter
+
+  defmodule RetryOnceNotifier do
+    @moduledoc "Fails once with a retryable Notifier.Error, then succeeds."
+    def notify(_rule, _context, _channel_config) do
+      case AttemptCounter.bump_attempts(__MODULE__) do
+        1 -> {:error, NotifierError.new(:timeout, %{message: "boom", notifier: "stub"})}
+        _ -> {:ok, %{channel: "stub"}}
+      end
+    end
+  end
+
+  defmodule NonRetryableNotifier do
+    @moduledoc "Always fails with a non-retryable Notifier.Error."
+    def notify(_rule, _context, _channel_config) do
+      AttemptCounter.bump_attempts(__MODULE__)
+      {:error, NotifierError.new(:authentication, %{message: "nope", notifier: "stub"})}
+    end
+  end
+
+  defmodule AlwaysFailRetryableNotifier do
+    @moduledoc "Always fails with a retryable Notifier.Error, exhausting all attempts."
+    def notify(_rule, _context, _channel_config) do
+      AttemptCounter.bump_attempts(__MODULE__)
+      {:error, NotifierError.new(:timeout, %{message: "boom", notifier: "stub"})}
+    end
+  end
+
   setup do
     start_supervised!({Task.Supervisor, name: __MODULE__.CycleSup})
     start_supervised!({Task.Supervisor, name: __MODULE__.DispatchSup})
@@ -39,13 +86,13 @@ defmodule Vigil.Runtime.AssetWorkerTest do
 
   defp asset, do: %Asset{name: "petr4", symbol: "PETR4.SA", provider: "yahoo", interval: "1s"}
 
-  defp rule do
+  defp rule(cooldown \\ "5m") do
     %Rule{
       name: "breakout",
       asset: "petr4",
       condition: %{field: :price, op: :gt, value: 40},
       actions: ["telegram"],
-      cooldown: "5m"
+      cooldown: cooldown
     }
   end
 
@@ -57,6 +104,25 @@ defmodule Vigil.Runtime.AssetWorkerTest do
       {AssetWorker,
        asset: asset(),
        rules: [rule()],
+       cycle_task_supervisor: __MODULE__.CycleSup,
+       dispatch_task_supervisor: __MODULE__.DispatchSup},
+      restart: :temporary
+    )
+  end
+
+  defp start_worker_with_notifier(notifier, cooldown \\ "5m") do
+    Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
+    Application.put_env(:vigil, :notifiers, %{"telegram" => notifier})
+
+    on_exit(fn ->
+      Application.delete_env(:vigil, :providers)
+      Application.delete_env(:vigil, :notifiers)
+    end)
+
+    start_supervised!(
+      {AssetWorker,
+       asset: asset(),
+       rules: [rule(cooldown)],
        cycle_task_supervisor: __MODULE__.CycleSup,
        dispatch_task_supervisor: __MODULE__.DispatchSup},
       restart: :temporary
@@ -157,5 +223,53 @@ defmodule Vigil.Runtime.AssetWorkerTest do
     assert state.cycle == nil
     # The drain path must have won: no failure counter increment.
     assert state.vigil_state.health.consecutive_failures == 0
+  end
+
+  describe "delivery retry (RFC-0015 §12, RFC-0007 §11)" do
+    test "retries a retryable failure then succeeds: one sent event, no failed event" do
+      start_counter(RetryOnceNotifier)
+
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [
+          [:vigil, :notification, :sent],
+          [:vigil, :notification, :failed]
+        ])
+
+      start_worker_with_notifier(RetryOnceNotifier)
+
+      assert_receive {[:vigil, :notification, :sent], ^ref, _,
+                      %{asset: "petr4", rule: "breakout"}},
+                     3_000
+
+      refute_receive {[:vigil, :notification, :failed], ^ref, _, _}, 500
+    end
+
+    test "a non-retryable failure emits failed after a single attempt" do
+      counter = start_counter(NonRetryableNotifier)
+
+      ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :notification, :failed]])
+
+      start_worker_with_notifier(NonRetryableNotifier)
+
+      assert_receive {[:vigil, :notification, :failed], ^ref, %{attempts: 1},
+                      %{asset: "petr4", rule: "breakout"}},
+                     2_000
+
+      assert :counters.get(counter, 1) == 1
+    end
+
+    test "a retryable failure that never recovers exhausts all 3 attempts" do
+      counter = start_counter(AlwaysFailRetryableNotifier)
+
+      ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :notification, :failed]])
+
+      start_worker_with_notifier(AlwaysFailRetryableNotifier, "1m")
+
+      assert_receive {[:vigil, :notification, :failed], ^ref, %{attempts: 3},
+                      %{asset: "petr4", rule: "breakout"}},
+                     5_000
+
+      assert :counters.get(counter, 1) == 3
+    end
   end
 end

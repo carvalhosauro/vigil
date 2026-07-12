@@ -18,7 +18,7 @@ defmodule Vigil.Runtime.AssetWorker do
   alias Vigil.Adapters.Notifier
   alias Vigil.Adapters.Provider
   alias Vigil.Core.{Duration, State}
-  alias Vigil.Runtime.{Cycle, Events}
+  alias Vigil.Runtime.{Cycle, Events, Retry}
 
   @cycle_ceiling_ms 60_000
 
@@ -137,7 +137,8 @@ defmodule Vigil.Runtime.AssetWorker do
   end
 
   # Delivery is asynchronous and never blocks the cycle (RFC-0015 §12,
-  # DEC-008). Delivery retry is deferred to the Telegram milestone.
+  # DEC-008). Delivery retry runs inside the unlinked dispatch task, bounded
+  # by the rule's cooldown window (RFC-0015 §12, RFC-0007 §11).
   defp build_dispatch(state) do
     dispatch_supervisor = state.dispatch_task_supervisor
     asset_name = state.asset.name
@@ -156,7 +157,7 @@ defmodule Vigil.Runtime.AssetWorker do
                 :ok
 
               {:error, reason} ->
-                Events.emit([:notification, :failed], %{}, %{
+                Events.emit([:notification, :failed], %{attempts: 0}, %{
                   asset: asset_name,
                   rule: rule.name,
                   reason: {:dispatch_start_failed, reason}
@@ -164,7 +165,7 @@ defmodule Vigil.Runtime.AssetWorker do
             end
 
           :error ->
-            Events.emit([:notification, :failed], %{}, %{
+            Events.emit([:notification, :failed], %{attempts: 0}, %{
               asset: asset_name,
               rule: rule.name,
               reason: {:unknown_notifier, action}
@@ -177,21 +178,56 @@ defmodule Vigil.Runtime.AssetWorker do
   end
 
   defp deliver(notifier, rule, context, channel_config, asset_name) do
-    case notifier.notify(rule, context, channel_config) do
-      {:ok, delivery} ->
+    budget_ms =
+      case Duration.to_ms(rule.cooldown) do
+        {:ok, ms} -> ms
+        :error -> 0
+      end
+
+    delivery = %{
+      notifier: notifier,
+      rule: rule,
+      context: context,
+      channel_config: channel_config,
+      asset_name: asset_name,
+      deadline: System.monotonic_time(:millisecond) + budget_ms
+    }
+
+    deliver_with_retry(delivery, 1)
+  end
+
+  defp deliver_with_retry(delivery, attempt) do
+    case delivery.notifier.notify(delivery.rule, delivery.context, delivery.channel_config) do
+      {:ok, sent} ->
         Events.emit([:notification, :sent], %{}, %{
-          asset: asset_name,
-          rule: rule.name,
-          delivery: delivery
+          asset: delivery.asset_name,
+          rule: delivery.rule.name,
+          delivery: sent
         })
 
+      {:error, %Notifier.Error{} = error} ->
+        remaining_ms = delivery.deadline - System.monotonic_time(:millisecond)
+
+        case Retry.next(error, attempt, remaining_ms) do
+          {:retry, delay} ->
+            Process.sleep(delay)
+            deliver_with_retry(delivery, attempt + 1)
+
+          :halt ->
+            emit_delivery_failed(delivery, attempt, error)
+        end
+
       {:error, reason} ->
-        Events.emit([:notification, :failed], %{}, %{
-          asset: asset_name,
-          rule: rule.name,
-          reason: reason
-        })
+        emit_delivery_failed(delivery, attempt, reason)
     end
+  end
+
+  defp emit_delivery_failed(delivery, attempt, reason) do
+    Events.emit([:notification, :failed], %{attempts: attempt}, %{
+      asset: delivery.asset_name,
+      rule: delivery.rule.name,
+      reason: reason
+    })
   end
 
   defp schedule_next_tick(state) do

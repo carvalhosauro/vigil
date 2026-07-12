@@ -145,7 +145,7 @@ defmodule Vigil.Runtime.Cycle do
             input.dispatch.(rule, context)
           rescue
             e ->
-              Events.emit([:notification, :failed], %{}, %{
+              Events.emit([:notification, :failed], %{attempts: 0}, %{
                 asset: input.asset.name,
                 rule: rule.name,
                 reason: e
