@@ -109,6 +109,9 @@ defmodule Vigil.Core.Config do
   defp put_parsed(acc, "Telegram", {name, telegram}),
     do: put_in(acc, [:telegrams, name], telegram)
 
+  # Keep-first semantics: a second Defaults resource under a DIFFERENT name
+  # passes the duplicate check (keyed on {kind, name}) and is silently
+  # discarded here. Same-name duplicates error like any other kind.
   defp put_parsed(acc, "Defaults", {_name, defaults}) do
     if acc.defaults != nil do
       acc
@@ -325,6 +328,9 @@ defmodule Vigil.Core.Config do
          }}
 
       errors ->
+        # Invariant: resolve/1 only runs when every resource parsed, so each
+        # error's {kind, name} is present in `order` — fetch! crashing here
+        # means a resolve error was produced for an unparsed resource.
         {:error, Enum.sort_by(errors, &Map.fetch!(order_index, {&1.kind, &1.name}))}
     end
   end

@@ -706,6 +706,92 @@ defmodule Vigil.Core.ConfigTest do
       assert {:ok, %Config{}} = Config.validate(valid_bundle([]))
     end
 
+    test "same-category resolve errors keep input order even against map iteration order" do
+      # No Defaults: both assets fail interval resolution. "zzz" precedes
+      # "aaa" in the input but follows it in map-key order — only the
+      # input-order sort produces this sequence.
+      zzz = asset_resource(%{"metadata" => %{"name" => "zzz"}})
+      aaa = asset_resource(%{"metadata" => %{"name" => "aaa"}})
+
+      assert {:error,
+              [
+                %Config.Error{kind: "Asset", name: "zzz"},
+                %Config.Error{kind: "Asset", name: "aaa"}
+              ]} = Config.validate([telegram_resource(), zzz, aaa])
+    end
+
+    test "resolve errors from different categories interleave back into input order" do
+      # Reference errors are gathered after interval errors; the rule comes
+      # first in the input, so the sort must move it ahead of the asset.
+      bad_rule =
+        rule_resource(%{
+          "spec" => rule_resource()["spec"] |> Map.put("actions", ["discord"])
+        })
+
+      good_asset =
+        asset_resource(%{
+          "spec" => asset_resource()["spec"] |> Map.put("interval", "30s")
+        })
+
+      no_interval = asset_resource(%{"metadata" => %{"name" => "later"}})
+
+      resources = [telegram_resource(), bad_rule, good_asset, no_interval]
+
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  name: "breakout",
+                  reason: {:invalid_value, "spec.actions", :unknown_notifier}
+                },
+                %Config.Error{kind: "Asset", name: "later"}
+              ]} = Config.validate(resources)
+    end
+
+    test "a same-name duplicate Defaults errors like any other kind" do
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Defaults",
+                  name: "global",
+                  reason: {:duplicate_name, "global"}
+                }
+              ]} =
+               Config.validate(
+                 valid_bundle([]) ++ [defaults_resource()]
+               )
+    end
+
+    test "a second Defaults under a different name is silently discarded (keep-first)" do
+      second_defaults =
+        defaults_resource(%{
+          "metadata" => %{"name" => "override"},
+          "spec" => %{"polling" => %{"interval" => "5m"}}
+        })
+
+      assert {:ok, config} = Config.validate(valid_bundle([]) ++ [second_defaults])
+      assert config.assets["petr4"].interval == "1m"
+    end
+
+    test "a resource that is both invalid and duplicated reports both errors" do
+      broken =
+        asset_resource(%{"metadata" => %{"name" => "petr4"}, "spec" => %{"provider" => "yahoo"}})
+
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:missing_field, "spec.symbol"}
+                },
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:duplicate_name, "petr4"}
+                }
+              ]} = Config.validate([broken, broken])
+    end
+
     test "a parse failure suppresses resolve-phase errors instead of cascading" do
       broken_asset =
         asset_resource(%{"metadata" => %{"name" => "petr4"}, "spec" => %{"provider" => "yahoo"}})
