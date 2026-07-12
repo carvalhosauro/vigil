@@ -36,60 +36,75 @@ defmodule Vigil.Core.Config do
   @doc """
   Validates a list of CRD resource maps.
 
-  Returns `{:ok, %Config{}}` or `{:error, %Error{}}` for the first invalid resource.
+  Returns `{:ok, %Config{}}` or `{:error, [%Error{}]}` — a non-empty list of every
+  problem found, ordered by input resource order (RFC-0010 §6: `vigil validate`
+  must list every problem, not just the first).
+
+  Resource parsing (structure, duplicate names, field/type/reference checks
+  scoped to a single resource) always runs across every resource. Cross-resource
+  resolution (interval/cooldown defaults, asset and notifier references) only
+  runs once every resource has parsed cleanly — resolving against a partially
+  parsed config would produce misleading cascade errors, so a parse failure
+  short-circuits resolution and returns only the parse errors.
   """
-  @spec validate([map()]) :: {:ok, t()} | {:error, Error.t()}
+  @spec validate([map()]) :: {:ok, t()} | {:error, [Error.t()]}
   def validate(resources) when is_list(resources) do
-    with {:ok, _} <- validate_unique_names(resources),
-         {:ok, parsed} <- parse_resources(resources),
-         {:ok, config} <- resolve(parsed) do
-      {:ok, config}
+    case parse_resources(resources) do
+      {:ok, parsed} -> resolve(parsed)
+      {:error, errors} -> {:error, errors}
     end
   end
 
-  @spec validate_unique_names([map()]) :: {:ok, :ok} | {:error, Error.t()}
-  defp validate_unique_names(resources) do
-    resources
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, :ok}, fn {resource, index}, {:ok, :ok} ->
-      kind = fetch(resource, "kind")
-      name = get_in_metadata(resource, ["name"])
-
-      if is_binary(name) and duplicate_at?(resources, kind, name, index) do
-        {:halt, {:error, error(kind, name, {:duplicate_name, name})}}
-      else
-        {:cont, {:ok, :ok}}
-      end
-    end)
-  end
-
-  @spec duplicate_at?([map()], String.t(), String.t(), non_neg_integer()) :: boolean()
-  defp duplicate_at?(resources, kind, name, index) do
-    Enum.with_index(resources)
-    |> Enum.any?(fn {resource, other_index} ->
-      other_index != index and fetch(resource, "kind") == kind and
-        get_in_metadata(resource, ["name"]) == name
-    end)
-  end
-
-  @spec parse_resources([map()]) :: {:ok, map()} | {:error, Error.t()}
+  # Fuses the duplicate-name check with per-resource parsing so both can
+  # accumulate in a single left-to-right pass, in input order: a resource is
+  # either a duplicate of an earlier (kind, name) pair, or gets parsed on its
+  # own merits. Either way it contributes at most one error, and parsing
+  # continues for every remaining resource regardless of earlier failures.
+  @spec parse_resources([map()]) :: {:ok, map()} | {:error, [Error.t()]}
   defp parse_resources(resources) do
-    Enum.reduce_while(
-      resources,
-      {:ok, %{assets: %{}, rules: %{}, telegrams: %{}, defaults: nil}},
-      fn
-        resource, {:ok, acc} ->
+    {acc, _seen, errors} =
+      Enum.reduce(resources, {empty_acc(), MapSet.new(), []}, fn resource, {acc, seen, errors} ->
+        kind = fetch(resource, "kind")
+        name = get_in_metadata(resource, ["name"])
+
+        if is_binary(name) and MapSet.member?(seen, {kind, name}) do
+          {acc, seen, [error(kind, name, {:duplicate_name, name}) | errors]}
+        else
+          seen = if is_binary(name), do: MapSet.put(seen, {kind, name}), else: seen
+
           case parse_resource(resource) do
-            {:ok, {kind, entry}} -> {:cont, {:ok, put_parsed(acc, kind, entry)}}
-            {:error, %Error{} = error} -> {:halt, {:error, error}}
+            {:ok, {rkind, entry}} -> {put_parsed(acc, rkind, entry), seen, errors}
+            {:error, %Error{} = error} -> {acc, seen, [error | errors]}
           end
-      end
-    )
+        end
+      end)
+
+    case Enum.reverse(errors) do
+      [] -> {:ok, acc}
+      errors -> {:error, errors}
+    end
   end
 
+  @spec empty_acc() :: map()
+  defp empty_acc,
+    do: %{assets: %{}, rules: %{}, telegrams: %{}, defaults: nil, order: []}
+
+  # `order` records the input position of every Asset/Rule resource (the only
+  # kinds that can produce a resolve-phase error) so resolve/1 can report
+  # cross-resource errors back in input order despite gathering them via
+  # unordered map iteration.
   @spec put_parsed(map(), String.t(), term()) :: map()
-  defp put_parsed(acc, "Asset", {name, asset}), do: put_in(acc, [:assets, name], asset)
-  defp put_parsed(acc, "Rule", {name, rule}), do: put_in(acc, [:rules, name], rule)
+  defp put_parsed(acc, "Asset", {name, asset}) do
+    acc
+    |> put_in([:assets, name], asset)
+    |> Map.update!(:order, &[{"Asset", name} | &1])
+  end
+
+  defp put_parsed(acc, "Rule", {name, rule}) do
+    acc
+    |> put_in([:rules, name], rule)
+    |> Map.update!(:order, &[{"Rule", name} | &1])
+  end
 
   defp put_parsed(acc, "Telegram", {name, telegram}),
     do: put_in(acc, [:telegrams, name], telegram)
@@ -284,24 +299,38 @@ defmodule Vigil.Core.Config do
     end
   end
 
-  @spec resolve(map()) :: {:ok, t()} | {:error, Error.t()}
-  defp resolve(%{assets: assets, rules: rules, telegrams: telegrams, defaults: defaults}) do
-    with {:ok, assets} <- resolve_asset_intervals(assets, defaults),
-         {:ok, rules} <- resolve_rule_cooldowns(rules, defaults),
-         {:ok, _} <- validate_asset_references(rules, assets),
-         {:ok, _} <- validate_notifier_references(rules, telegrams) do
-      {:ok,
-       %__MODULE__{
-         assets: assets,
-         rules: rules,
-         telegrams: telegrams,
-         defaults: defaults
-       }}
+  @spec resolve(map()) :: {:ok, t()} | {:error, [Error.t()]}
+  defp resolve(%{assets: assets, rules: rules, telegrams: telegrams, defaults: defaults} = acc) do
+    order_index =
+      acc.order
+      |> Enum.reverse()
+      |> Enum.with_index()
+      |> Map.new()
+
+    {assets, interval_errors} = resolve_asset_intervals(assets, defaults)
+    rules = resolve_rule_cooldowns(rules, defaults)
+
+    reference_errors =
+      validate_asset_references(rules, assets) ++
+        validate_notifier_references(rules, telegrams)
+
+    case interval_errors ++ reference_errors do
+      [] ->
+        {:ok,
+         %__MODULE__{
+           assets: assets,
+           rules: rules,
+           telegrams: telegrams,
+           defaults: defaults
+         }}
+
+      errors ->
+        {:error, Enum.sort_by(errors, &Map.fetch!(order_index, {&1.kind, &1.name}))}
     end
   end
 
   @spec resolve_rule_cooldowns(%{String.t() => Rule.t()}, Defaults.t() | nil) ::
-          {:ok, %{String.t() => Rule.t()}} | {:error, Error.t()}
+          %{String.t() => Rule.t()}
   defp resolve_rule_cooldowns(rules, defaults) do
     default_cooldown =
       case defaults do
@@ -309,27 +338,29 @@ defmodule Vigil.Core.Config do
         nil -> @default_cooldown
       end
 
-    {:ok,
-     Map.new(rules, fn {name, rule} ->
-       cooldown =
-         case rule.cooldown do
-           nil -> default_cooldown
-           explicit -> explicit
-         end
+    Map.new(rules, fn {name, rule} ->
+      cooldown =
+        case rule.cooldown do
+          nil -> default_cooldown
+          explicit -> explicit
+        end
 
-       {name, %{rule | cooldown: cooldown}}
-     end)}
+      {name, %{rule | cooldown: cooldown}}
+    end)
   end
 
   @spec resolve_asset_intervals(%{String.t() => Asset.t()}, Defaults.t() | nil) ::
-          {:ok, %{String.t() => Asset.t()}} | {:error, Error.t()}
+          {%{String.t() => Asset.t()}, [Error.t()]}
   defp resolve_asset_intervals(assets, defaults) do
-    Enum.reduce_while(assets, {:ok, %{}}, fn {name, asset}, {:ok, acc} ->
-      case resolve_interval(asset, defaults) do
-        {:ok, resolved} -> {:cont, {:ok, Map.put(acc, name, resolved)}}
-        {:error, %Error{} = error} -> {:halt, {:error, error}}
-      end
-    end)
+    {resolved, errors} =
+      Enum.reduce(assets, {%{}, []}, fn {name, asset}, {acc, errors} ->
+        case resolve_interval(asset, defaults) do
+          {:ok, resolved} -> {Map.put(acc, name, resolved), errors}
+          {:error, %Error{} = error} -> {Map.put(acc, name, asset), [error | errors]}
+        end
+      end)
+
+    {resolved, Enum.reverse(errors)}
   end
 
   @spec resolve_interval(Asset.t(), Defaults.t() | nil) ::
@@ -344,25 +375,24 @@ defmodule Vigil.Core.Config do
     do: {:error, error("Asset", name, {:missing_interval, :no_defaults})}
 
   @spec validate_asset_references(%{String.t() => Rule.t()}, %{String.t() => Asset.t()}) ::
-          {:ok, :ok} | {:error, Error.t()}
+          [Error.t()]
   defp validate_asset_references(rules, assets) do
-    Enum.reduce_while(rules, {:ok, :ok}, fn {_name, rule}, {:ok, :ok} ->
+    Enum.flat_map(rules, fn {_name, rule} ->
       if Map.has_key?(assets, rule.asset) do
-        {:cont, {:ok, :ok}}
+        []
       else
-        {:halt,
-         {:error, error("Rule", rule.name, {:unknown_reference, "spec.asset", rule.asset})}}
+        [error("Rule", rule.name, {:unknown_reference, "spec.asset", rule.asset})]
       end
     end)
   end
 
   @spec validate_notifier_references(%{String.t() => Rule.t()}, %{String.t() => Telegram.t()}) ::
-          {:ok, :ok} | {:error, Error.t()}
+          [Error.t()]
   defp validate_notifier_references(rules, telegrams) do
-    Enum.reduce_while(rules, {:ok, :ok}, fn {_name, rule}, {:ok, :ok} ->
+    Enum.flat_map(rules, fn {_name, rule} ->
       case validate_rule_actions(rule, telegrams) do
-        :ok -> {:cont, {:ok, :ok}}
-        {:error, %Error{} = error} -> {:halt, {:error, error}}
+        :ok -> []
+        {:error, %Error{} = error} -> [error]
       end
     end)
   end

@@ -114,7 +114,7 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
         provider: yahoo
       """)
 
-      assert {:error, %Vigil.Core.Config.Error{kind: "Asset"}} = ConfigLoader.load(dir)
+      assert {:error, [%Vigil.Core.Config.Error{kind: "Asset"}]} = ConfigLoader.load(dir)
     end
   end
 end
