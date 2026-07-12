@@ -7,6 +7,12 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
 
   describe "config_dir/0" do
     test "defaults to configs" do
+      # Self-contained: other suites (CLI validate/start) set VIGIL_CONFIG_DIR
+      # or the :config_dir app env, both process-global. Clear them so this
+      # default read never sees a leaked override.
+      System.delete_env("VIGIL_CONFIG_DIR")
+      Application.delete_env(:vigil, :config_dir)
+
       assert ConfigLoader.config_dir() == "configs"
     end
 
