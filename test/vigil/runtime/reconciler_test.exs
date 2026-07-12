@@ -89,6 +89,56 @@ defmodule Vigil.Runtime.ReconcilerTest do
     assert AssetWorker.state(pid).asset.name == "itub4"
   end
 
+  test "restart re-syncs from the current on-disk config, not the boot config" do
+    # A mutable copy of the base config so disk can change after boot.
+    dir = Path.join(System.tmp_dir!(), "vigil_resync_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    File.cp_r!(@base, dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    start_runtime(dir)
+    assert {:ok, _pid} = worker_pid("petr4")
+    assert :error = worker_pid("itub4")
+
+    # Change disk after boot: add itub4 (absent from the boot config).
+    File.cp!(Path.join(@added, "assets/itub4.yaml"), Path.join(dir, "assets/itub4.yaml"))
+
+    # Crash the WorkersSupervisor: :rest_for_one restarts it (empty) and the
+    # Reconciler. An init that trusted the boot config would never know about
+    # itub4; loading from disk picks up the on-disk change (DEC-001).
+    Process.exit(Process.whereis(WorkersSupervisor), :kill)
+
+    assert eventually(fn -> match?({:ok, _pid}, worker_pid("itub4")) end)
+    assert {:ok, _pid} = worker_pid("petr4")
+  end
+
+  test "restart with an invalid on-disk config comes up empty instead of crash-looping" do
+    dir = Path.join(System.tmp_dir!(), "vigil_bad_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    File.cp_r!(@base, dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    start_runtime(dir)
+    assert {:ok, _pid} = worker_pid("petr4")
+
+    # Break the config on disk after boot (asset missing its required symbol).
+    File.write!(Path.join(dir, "assets/petr4.yaml"), """
+    apiVersion: v1
+    kind: Asset
+    metadata:
+      name: petr4
+    spec:
+      provider: yahoo
+    """)
+
+    Process.exit(Process.whereis(WorkersSupervisor), :kill)
+
+    # The Reconciler re-inits, the disk load fails, so it comes up empty (no
+    # workers) — but the runtime tree stays alive rather than crash-looping.
+    assert eventually(fn -> worker_pid("petr4") == :error end)
+    assert eventually(fn -> is_pid(Process.whereis(Reconciler)) end)
+  end
+
   test "asset removed: reconcile stops the worker" do
     start_runtime()
     assert {:ok, _pid} = worker_pid("vale3")

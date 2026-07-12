@@ -20,12 +20,18 @@ defmodule Vigil.Runtime.Reconciler do
   guarantee (RFC-0006 §9, DEC-002/003) lives entirely in the validation gate:
   a config that fails `Config.validate/1` never reaches apply.
 
-  Boot (`init/1`) runs the exact same apply step against an empty actual
-  config, so every Asset is an `added` entry and gets a worker the same way a
-  reload would start one — one mechanism for both.
+  Boot (`init/1`) loads the desired config from disk and runs the exact same
+  apply step against an empty actual config, so every Asset is an `added`
+  entry and gets a worker the same way a reload would start one — one
+  mechanism for both. Loading from disk (rather than a config captured at
+  boot) means a restart — e.g. after the `WorkersSupervisor` crashes and
+  `:rest_for_one` restarts this process — re-syncs to the current on-disk
+  source of truth (DEC-001) instead of reverting to boot state.
   """
 
   use GenServer
+
+  require Logger
 
   alias Vigil.Adapters.ConfigLoader
   alias Vigil.Core.{Config, ConfigDiff}
@@ -70,7 +76,7 @@ defmodule Vigil.Runtime.Reconciler do
   @impl GenServer
   def init(opts) do
     config_dir = Keyword.get(opts, :config_dir, ConfigLoader.config_dir())
-    config = Keyword.fetch!(opts, :config)
+    config = load_or_empty(config_dir)
 
     # Initial sync: every configured Asset is `added` against an empty actual
     # config, so it starts a worker through the same apply path a reload uses.
@@ -78,6 +84,25 @@ defmodule Vigil.Runtime.Reconciler do
     _applied = apply_diff(diff, config, @empty_config)
 
     {:ok, %{config_dir: config_dir, config: config}}
+  end
+
+  # Boot already fail-fast validated the config (Runtime.Supervisor), so a load
+  # failure here is only reachable on a restart where the on-disk config has
+  # since become invalid. Come up empty and let the next reconcile heal rather
+  # than crash-loop the whole Runtime tree.
+  @spec load_or_empty(String.t()) :: Config.t()
+  defp load_or_empty(config_dir) do
+    case ConfigLoader.load(config_dir) do
+      {:ok, config} ->
+        config
+
+      {:error, reason} ->
+        Logger.warning(
+          "reconciler: config load failed on init, starting empty: #{inspect(reason)}"
+        )
+
+        @empty_config
+    end
   end
 
   @impl GenServer

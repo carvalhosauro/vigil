@@ -1,9 +1,12 @@
 defmodule Vigil.Runtime.Supervisor do
   @moduledoc """
-  Boots the Runtime: loads the configuration (fail-fast — an invalid or
-  missing configuration aborts application start, RFC-0010 DEC-003) and hands
-  it to the `Reconciler`, which starts one `AssetWorker` per Asset (RFC-0006:
-  boot is an initial reconcile against an empty actual config).
+  Boots the Runtime: validates the configuration once (fail-fast — an invalid
+  or missing configuration aborts application start, RFC-0010 DEC-003), then
+  hands the `Reconciler` only the config *directory*. The Reconciler loads
+  from disk itself and starts one `AssetWorker` per Asset (RFC-0006: boot is
+  an initial reconcile against an empty actual config). Passing the directory
+  rather than a boot-time snapshot means a Reconciler restart re-syncs to the
+  current on-disk source of truth (DEC-001) instead of reverting to boot.
 
   Topology (`:rest_for_one`):
     CycleTaskSupervisor
@@ -31,8 +34,8 @@ defmodule Vigil.Runtime.Supervisor do
     dir = Keyword.get(opts, :config_dir, ConfigLoader.config_dir())
 
     case ConfigLoader.load(dir) do
-      {:ok, config} ->
-        Supervisor.start_link(__MODULE__, {dir, config}, name: __MODULE__)
+      {:ok, _config} ->
+        Supervisor.start_link(__MODULE__, dir, name: __MODULE__)
 
       {:error, reason} ->
         {:error, {:invalid_config, reason}}
@@ -40,17 +43,17 @@ defmodule Vigil.Runtime.Supervisor do
   end
 
   @impl Supervisor
-  def init({dir, config}) do
-    Supervisor.init(children(dir, config), strategy: :rest_for_one)
+  def init(dir) do
+    Supervisor.init(children(dir), strategy: :rest_for_one)
   end
 
-  defp children(dir, config) do
+  defp children(dir) do
     [
       {Task.Supervisor, name: @cycle_task_supervisor},
       {Task.Supervisor, name: @dispatch_task_supervisor},
       {Registry, keys: :unique, name: @worker_registry},
       WorkersSupervisor,
-      {Reconciler, config_dir: dir, config: config},
+      {Reconciler, config_dir: dir},
       Control
     ]
   end
