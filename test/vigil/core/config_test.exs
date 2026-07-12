@@ -99,7 +99,7 @@ defmodule Vigil.Core.ConfigTest do
                Map.fetch!(config.assets, "petr4")
 
       assert %Defaults{name: "global", interval: "1m"} = config.defaults
-      assert %Telegram{name: "telegram"} = Map.fetch!(config.telegrams, "telegram")
+      assert %Telegram{name: "telegram"} = Map.fetch!(config.notifiers, "telegram")
 
       assert %Rule{name: "breakout", asset: "petr4", actions: ["telegram"]} =
                Map.fetch!(config.rules, "breakout")

@@ -13,6 +13,9 @@ erl_crash.dump
 /vigil-*.tar
 /burrito_out/
 
+# escript build output
+/vigil
+
 # Dialyzer PLTs
 /priv/plts/*.plt
 /priv/plts/*.plt.hash

@@ -14,6 +14,7 @@ defmodule Vigil.Core do
     exports: [
       Config,
       Config.Asset,
+      Config.Error,
       Config.Rule,
       Config.Telegram,
       Context,

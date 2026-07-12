@@ -53,7 +53,7 @@ defmodule Vigil.Runtime.Supervisor do
           {AssetWorker,
            asset: asset,
            rules: rules,
-           channel_configs: config.telegrams,
+           channel_configs: config.notifiers,
            cycle_task_supervisor: @cycle_task_supervisor,
            dispatch_task_supervisor: @dispatch_task_supervisor},
           id: {AssetWorker, name}
