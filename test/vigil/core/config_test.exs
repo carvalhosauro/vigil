@@ -123,7 +123,13 @@ defmodule Vigil.Core.ConfigTest do
       asset = asset_resource(%{"spec" => %{"provider" => "yahoo"}})
 
       assert {:error,
-              %Config.Error{kind: "Asset", name: "petr4", reason: {:missing_field, "spec.symbol"}}} =
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:missing_field, "spec.symbol"}
+                }
+              ]} =
                Config.validate(valid_bundle(asset: asset))
     end
 
@@ -131,7 +137,7 @@ defmodule Vigil.Core.ConfigTest do
       asset = asset_resource(%{"metadata" => %{"name" => "PETR4"}})
 
       assert {:error,
-              %Config.Error{kind: "Asset", name: "PETR4", reason: {:invalid_name, "PETR4"}}} =
+              [%Config.Error{kind: "Asset", name: "PETR4", reason: {:invalid_name, "PETR4"}}]} =
                Config.validate(valid_bundle(asset: asset))
     end
 
@@ -139,33 +145,39 @@ defmodule Vigil.Core.ConfigTest do
       duplicate = asset_resource(%{"metadata" => %{"name" => "petr4"}})
 
       assert {:error,
-              %Config.Error{
-                kind: "Asset",
-                name: "petr4",
-                reason: {:duplicate_name, "petr4"}
-              }} = Config.validate([duplicate, duplicate])
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:duplicate_name, "petr4"}
+                }
+              ]} = Config.validate([duplicate, duplicate])
     end
 
     test "rejects unsupported apiVersion" do
       asset = asset_resource(%{"apiVersion" => "v2"})
 
       assert {:error,
-              %Config.Error{
-                kind: "Asset",
-                name: "petr4",
-                reason: {:unsupported_api_version, "v2"}
-              }} = Config.validate([asset])
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:unsupported_api_version, "v2"}
+                }
+              ]} = Config.validate([asset])
     end
 
     test "rejects unknown kind" do
       resource = asset_resource(%{"kind" => "Portfolio"})
 
       assert {:error,
-              %Config.Error{
-                kind: "Portfolio",
-                name: "petr4",
-                reason: {:unsupported_kind, "Portfolio"}
-              }} = Config.validate([resource])
+              [
+                %Config.Error{
+                  kind: "Portfolio",
+                  name: "petr4",
+                  reason: {:unsupported_kind, "Portfolio"}
+                }
+              ]} = Config.validate([resource])
     end
 
     test "rejects unknown provider" do
@@ -175,11 +187,13 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{
-                kind: "Asset",
-                name: "petr4",
-                reason: {:invalid_value, "spec.provider", :unknown_provider}
-              }} = Config.validate(valid_bundle(asset: asset))
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:invalid_value, "spec.provider", :unknown_provider}
+                }
+              ]} = Config.validate(valid_bundle(asset: asset))
     end
 
     test "rejects invalid duration values" do
@@ -189,11 +203,13 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{
-                kind: "Asset",
-                name: "petr4",
-                reason: {:invalid_value, "spec.interval", :invalid_duration}
-              }} = Config.validate(valid_bundle(asset: asset))
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:invalid_value, "spec.interval", :invalid_duration}
+                }
+              ]} = Config.validate(valid_bundle(asset: asset))
     end
 
     test "rejects zero duration values (0s/0m/0h are invalid)" do
@@ -204,11 +220,13 @@ defmodule Vigil.Core.ConfigTest do
           })
 
         assert {:error,
-                %Config.Error{
-                  kind: "Asset",
-                  name: "petr4",
-                  reason: {:invalid_value, "spec.interval", :invalid_duration}
-                }} = Config.validate(valid_bundle(asset: asset)),
+                [
+                  %Config.Error{
+                    kind: "Asset",
+                    name: "petr4",
+                    reason: {:invalid_value, "spec.interval", :invalid_duration}
+                  }
+                ]} = Config.validate(valid_bundle(asset: asset)),
                "expected #{zero} to be rejected as an invalid duration"
       end
     end
@@ -217,11 +235,13 @@ defmodule Vigil.Core.ConfigTest do
       rule = rule_resource(%{"spec" => Map.put(rule_resource()["spec"], "asset", "missing")})
 
       assert {:error,
-              %Config.Error{
-                kind: "Rule",
-                name: "breakout",
-                reason: {:unknown_reference, "spec.asset", "missing"}
-              }} = Config.validate(valid_bundle(rule: rule))
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  name: "breakout",
+                  reason: {:unknown_reference, "spec.asset", "missing"}
+                }
+              ]} = Config.validate(valid_bundle(rule: rule))
     end
 
     test "rejects missing notifier reference from rule actions" do
@@ -233,22 +253,26 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{
-                kind: "Rule",
-                name: "breakout",
-                reason: {:invalid_value, "spec.actions", :unknown_notifier}
-              }} = Config.validate(valid_bundle(rule: rule))
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  name: "breakout",
+                  reason: {:invalid_value, "spec.actions", :unknown_notifier}
+                }
+              ]} = Config.validate(valid_bundle(rule: rule))
     end
 
     test "rejects rule actions that reference an unknown telegram resource" do
       rule = rule_resource()
 
       assert {:error,
-              %Config.Error{
-                kind: "Rule",
-                name: "breakout",
-                reason: {:unknown_reference, "spec.actions", "telegram"}
-              }} =
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  name: "breakout",
+                  reason: {:unknown_reference, "spec.actions", "telegram"}
+                }
+              ]} =
                Config.validate([
                  defaults_resource(),
                  asset_resource(),
@@ -263,11 +287,13 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{
-                kind: "Telegram",
-                name: "telegram",
-                reason: {:invalid_value, "spec.token", :must_use_env_var}
-              }} = Config.validate(valid_bundle(telegram: telegram))
+              [
+                %Config.Error{
+                  kind: "Telegram",
+                  name: "telegram",
+                  reason: {:invalid_value, "spec.token", :must_use_env_var}
+                }
+              ]} = Config.validate(valid_bundle(telegram: telegram))
     end
 
     test "rejects invalid rule condition structure" do
@@ -282,22 +308,26 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{
-                kind: "Rule",
-                name: "breakout",
-                reason: {:invalid_value, "spec.when", {:unknown_field, "pricee"}}
-              }} = Config.validate(valid_bundle(rule: rule))
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  name: "breakout",
+                  reason: {:invalid_value, "spec.when", {:unknown_field, "pricee"}}
+                }
+              ]} = Config.validate(valid_bundle(rule: rule))
     end
 
     test "rejects asset without interval when defaults is missing" do
       asset = asset_resource(%{"spec" => %{"symbol" => "PETR4.SA", "provider" => "yahoo"}})
 
       assert {:error,
-              %Config.Error{
-                kind: "Asset",
-                name: "petr4",
-                reason: {:missing_interval, :no_defaults}
-              }} =
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:missing_interval, :no_defaults}
+                }
+              ]} =
                Config.validate([
                  telegram_resource(),
                  asset,
@@ -327,14 +357,14 @@ defmodule Vigil.Core.ConfigTest do
     test "rejects missing apiVersion" do
       asset = asset_resource() |> Map.delete("apiVersion")
 
-      assert {:error, %Config.Error{reason: {:missing_field, "apiVersion"}}} =
+      assert {:error, [%Config.Error{reason: {:missing_field, "apiVersion"}}]} =
                Config.validate([asset])
     end
 
     test "rejects missing metadata name" do
       asset = asset_resource(%{"metadata" => %{}})
 
-      assert {:error, %Config.Error{reason: {:missing_field, "metadata.name"}}} =
+      assert {:error, [%Config.Error{reason: {:missing_field, "metadata.name"}}]} =
                Config.validate([asset])
     end
 
@@ -365,7 +395,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => %{"symbol" => "PETR4.SA", "provider" => "yahoo", "extra" => true}
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_field, "spec.extra"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_field, "spec.extra"}}]} =
                Config.validate(valid_bundle(asset: asset))
     end
 
@@ -375,7 +405,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => rule_resource()["spec"] |> Map.put("actions", [])
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_value, "spec.actions", :empty_actions}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_value, "spec.actions", :empty_actions}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -385,7 +415,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => rule_resource()["spec"] |> Map.put("actions", [:telegram])
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.actions", "string"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.actions", "string"}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -400,7 +430,8 @@ defmodule Vigil.Core.ConfigTest do
             })
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_value, "spec.when", :unsupported_operator}}} =
+      assert {:error,
+              [%Config.Error{reason: {:invalid_value, "spec.when", :unsupported_operator}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -431,7 +462,7 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{reason: {:invalid_value, "spec.when", :invalid_condition_shape}}} =
+              [%Config.Error{reason: {:invalid_value, "spec.when", :invalid_condition_shape}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -441,7 +472,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => Map.put(rule_resource()["spec"], "when", "price > 40")
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.when", "map"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.when", "map"}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -452,7 +483,7 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{reason: {:invalid_value, "spec.when.all", :empty_condition_list}}} =
+              [%Config.Error{reason: {:invalid_value, "spec.when.all", :empty_condition_list}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -462,38 +493,38 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => Map.put(rule_resource()["spec"], "when", %{"all" => ["price > 40"]})
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.when.all", "map"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.when.all", "map"}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
     test "rejects invalid metadata and spec types" do
       asset = asset_resource(%{"metadata" => "petr4"})
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "metadata", "map"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "metadata", "map"}}]} =
                Config.validate([asset])
 
       asset = asset_resource(%{"spec" => "invalid"})
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec", "map"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec", "map"}}]} =
                Config.validate([asset])
     end
 
     test "rejects invalid defaults polling types" do
       defaults = defaults_resource(%{"spec" => %{"polling" => "1m"}})
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.polling", "map"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.polling", "map"}}]} =
                Config.validate([defaults])
 
       defaults = defaults_resource(%{"spec" => %{"polling" => %{"interval" => 60}}})
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.polling.interval", "string"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.polling.interval", "string"}}]} =
                Config.validate([defaults])
     end
 
     test "rejects invalid list and string fields on rules" do
       rule = rule_resource(%{"spec" => Map.delete(rule_resource()["spec"], "actions")})
 
-      assert {:error, %Config.Error{reason: {:missing_field, "spec.actions"}}} =
+      assert {:error, [%Config.Error{reason: {:missing_field, "spec.actions"}}]} =
                Config.validate(valid_bundle(rule: rule))
 
       rule =
@@ -501,7 +532,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => rule_resource()["spec"] |> Map.put("actions", "telegram")
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.actions", "list"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.actions", "list"}}]} =
                Config.validate(valid_bundle(rule: rule))
 
       rule =
@@ -509,7 +540,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => rule_resource()["spec"] |> Map.put("asset", 123)
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.asset", "string"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.asset", "string"}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -526,7 +557,7 @@ defmodule Vigil.Core.ConfigTest do
         })
 
       assert {:error,
-              %Config.Error{reason: {:invalid_value, "spec.when.all", :unsupported_operator}}} =
+              [%Config.Error{reason: {:invalid_value, "spec.when.all", :unsupported_operator}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -536,14 +567,14 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => Map.put(rule_resource()["spec"], "when", %{"not" => "price > 40"})
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.when.not", "map"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.when.not", "map"}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
     test "rejects missing structural fields" do
       asset = asset_resource() |> Map.delete("metadata")
 
-      assert {:error, %Config.Error{reason: {:missing_field, "metadata"}}} =
+      assert {:error, [%Config.Error{reason: {:missing_field, "metadata"}}]} =
                Config.validate([asset])
 
       rule =
@@ -551,7 +582,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => rule_resource()["spec"] |> Map.delete("when")
         })
 
-      assert {:error, %Config.Error{reason: {:missing_field, "spec.when"}}} =
+      assert {:error, [%Config.Error{reason: {:missing_field, "spec.when"}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -561,7 +592,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => %{"symbol" => "PETR4.SA", "provider" => "yahoo", "interval" => 30}
         })
 
-      assert {:error, %Config.Error{reason: {:invalid_type, "spec.interval", "duration"}}} =
+      assert {:error, [%Config.Error{reason: {:invalid_type, "spec.interval", "duration"}}]} =
                Config.validate(valid_bundle(asset: asset))
     end
 
@@ -571,7 +602,7 @@ defmodule Vigil.Core.ConfigTest do
           "spec" => Map.put(rule_resource()["spec"], "when", %{"field" => "price", "op" => "gt"})
         })
 
-      assert {:error, %Config.Error{reason: {:missing_field, "spec.when.value"}}} =
+      assert {:error, [%Config.Error{reason: {:missing_field, "spec.when.value"}}]} =
                Config.validate(valid_bundle(rule: rule))
     end
 
@@ -597,6 +628,188 @@ defmodule Vigil.Core.ConfigTest do
 
       assert %Rule{condition: %{all: [%{field: :price, op: :gt, value: 40}]}} =
                Map.fetch!(config.rules, "breakout")
+    end
+  end
+
+  describe "validate/1 error accumulation" do
+    test "reports every invalid resource, in input order, instead of stopping at the first" do
+      broken_asset =
+        asset_resource(%{"metadata" => %{"name" => "petr4"}, "spec" => %{"provider" => "yahoo"}})
+
+      broken_telegram =
+        telegram_resource(%{"spec" => %{"token" => "plain-secret", "chat_id" => "${CHAT_ID}"}})
+
+      resources = [defaults_resource(), broken_asset, broken_telegram, rule_resource()]
+
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:missing_field, "spec.symbol"}
+                },
+                %Config.Error{
+                  kind: "Telegram",
+                  name: "telegram",
+                  reason: {:invalid_value, "spec.token", :must_use_env_var}
+                }
+              ]} = Config.validate(resources)
+    end
+
+    test "reports every duplicate beyond the first occurrence" do
+      triplicate = asset_resource(%{"metadata" => %{"name" => "petr4"}})
+
+      assert {:error,
+              [
+                %Config.Error{kind: "Asset", name: "petr4", reason: {:duplicate_name, "petr4"}},
+                %Config.Error{kind: "Asset", name: "petr4", reason: {:duplicate_name, "petr4"}}
+              ]} = Config.validate([triplicate, triplicate, triplicate])
+    end
+
+    test "reports every broken cross-resource reference, not just the first" do
+      first_rule =
+        rule_resource(%{
+          "metadata" => %{"name" => "first"},
+          "spec" => Map.put(rule_resource()["spec"], "asset", "unknown-asset")
+        })
+
+      second_rule =
+        rule_resource(%{
+          "metadata" => %{"name" => "second"},
+          "spec" => rule_resource()["spec"] |> Map.put("actions", ["discord"])
+        })
+
+      resources = [
+        defaults_resource(),
+        telegram_resource(),
+        asset_resource(),
+        first_rule,
+        second_rule
+      ]
+
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  name: "first",
+                  reason: {:unknown_reference, "spec.asset", "unknown-asset"}
+                },
+                %Config.Error{
+                  kind: "Rule",
+                  name: "second",
+                  reason: {:invalid_value, "spec.actions", :unknown_notifier}
+                }
+              ]} = Config.validate(resources)
+    end
+
+    test "a valid config still resolves to {:ok, config} unchanged" do
+      assert {:ok, %Config{}} = Config.validate(valid_bundle([]))
+    end
+
+    test "same-category resolve errors keep input order even against map iteration order" do
+      # No Defaults: both assets fail interval resolution. "zzz" precedes
+      # "aaa" in the input but follows it in map-key order — only the
+      # input-order sort produces this sequence.
+      zzz = asset_resource(%{"metadata" => %{"name" => "zzz"}})
+      aaa = asset_resource(%{"metadata" => %{"name" => "aaa"}})
+
+      assert {:error,
+              [
+                %Config.Error{kind: "Asset", name: "zzz"},
+                %Config.Error{kind: "Asset", name: "aaa"}
+              ]} = Config.validate([telegram_resource(), zzz, aaa])
+    end
+
+    test "resolve errors from different categories interleave back into input order" do
+      # Reference errors are gathered after interval errors; the rule comes
+      # first in the input, so the sort must move it ahead of the asset.
+      bad_rule =
+        rule_resource(%{
+          "spec" => rule_resource()["spec"] |> Map.put("actions", ["discord"])
+        })
+
+      good_asset =
+        asset_resource(%{
+          "spec" => asset_resource()["spec"] |> Map.put("interval", "30s")
+        })
+
+      no_interval = asset_resource(%{"metadata" => %{"name" => "later"}})
+
+      resources = [telegram_resource(), bad_rule, good_asset, no_interval]
+
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  name: "breakout",
+                  reason: {:invalid_value, "spec.actions", :unknown_notifier}
+                },
+                %Config.Error{kind: "Asset", name: "later"}
+              ]} = Config.validate(resources)
+    end
+
+    test "a same-name duplicate Defaults errors like any other kind" do
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Defaults",
+                  name: "global",
+                  reason: {:duplicate_name, "global"}
+                }
+              ]} =
+               Config.validate(valid_bundle([]) ++ [defaults_resource()])
+    end
+
+    test "a second Defaults under a different name is silently discarded (keep-first)" do
+      second_defaults =
+        defaults_resource(%{
+          "metadata" => %{"name" => "override"},
+          "spec" => %{"polling" => %{"interval" => "5m"}}
+        })
+
+      assert {:ok, config} = Config.validate(valid_bundle([]) ++ [second_defaults])
+      assert config.assets["petr4"].interval == "1m"
+    end
+
+    test "a resource that is both invalid and duplicated reports both errors" do
+      broken =
+        asset_resource(%{"metadata" => %{"name" => "petr4"}, "spec" => %{"provider" => "yahoo"}})
+
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:missing_field, "spec.symbol"}
+                },
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:duplicate_name, "petr4"}
+                }
+              ]} = Config.validate([broken, broken])
+    end
+
+    test "a parse failure suppresses resolve-phase errors instead of cascading" do
+      broken_asset =
+        asset_resource(%{"metadata" => %{"name" => "petr4"}, "spec" => %{"provider" => "yahoo"}})
+
+      dangling_rule =
+        rule_resource(%{
+          "spec" => Map.put(rule_resource()["spec"], "asset", "missing-asset")
+        })
+
+      resources = [defaults_resource(), telegram_resource(), broken_asset, dangling_rule]
+
+      assert {:error,
+              [
+                %Config.Error{
+                  kind: "Asset",
+                  name: "petr4",
+                  reason: {:missing_field, "spec.symbol"}
+                }
+              ]} =
+               Config.validate(resources)
     end
   end
 
@@ -644,10 +857,12 @@ defmodule Vigil.Core.ConfigTest do
       resources = [defaults_resource(), asset_resource(), telegram_resource(), rule]
 
       assert {:error,
-              %Config.Error{
-                kind: "Rule",
-                reason: {:invalid_value, "spec.cooldown", :invalid_duration}
-              }} =
+              [
+                %Config.Error{
+                  kind: "Rule",
+                  reason: {:invalid_value, "spec.cooldown", :invalid_duration}
+                }
+              ]} =
                Config.validate(resources)
     end
 
@@ -660,7 +875,7 @@ defmodule Vigil.Core.ConfigTest do
           }
         })
 
-      assert {:error, %Config.Error{kind: "Defaults"}} = Config.validate([defaults])
+      assert {:error, [%Config.Error{kind: "Defaults"}]} = Config.validate([defaults])
     end
   end
 end
