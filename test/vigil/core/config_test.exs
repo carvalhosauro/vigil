@@ -757,9 +757,7 @@ defmodule Vigil.Core.ConfigTest do
                   reason: {:duplicate_name, "global"}
                 }
               ]} =
-               Config.validate(
-                 valid_bundle([]) ++ [defaults_resource()]
-               )
+               Config.validate(valid_bundle([]) ++ [defaults_resource()])
     end
 
     test "a second Defaults under a different name is silently discarded (keep-first)" do
