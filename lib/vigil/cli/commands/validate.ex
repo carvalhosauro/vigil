@@ -28,8 +28,8 @@ defmodule Vigil.CLI.Commands.Validate do
   end
 
   @spec success(Config.t(), String.t()) :: {iodata(), iodata(), 0}
-  defp success(%Config{assets: assets, rules: rules, telegrams: telegrams}, format) do
-    counts = %{assets: map_size(assets), rules: map_size(rules), notifiers: map_size(telegrams)}
+  defp success(%Config{assets: assets, rules: rules, notifiers: notifiers}, format) do
+    counts = %{assets: map_size(assets), rules: map_size(rules), notifiers: map_size(notifiers)}
 
     # `Main` validates --format; anything else falls back to text.
     case format do

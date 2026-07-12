@@ -10,13 +10,15 @@ defmodule Vigil.Core.Config do
   alias Vigil.Core.Config.{Asset, Defaults, Error, Rule, Telegram}
   alias Vigil.Core.Duration
 
-  @enforce_keys [:assets, :rules, :telegrams, :defaults]
+  @enforce_keys [:assets, :rules, :notifiers, :defaults]
   defstruct @enforce_keys
 
   @api_version "v1"
   @kinds ~w(Asset Rule Telegram Defaults)
   @providers ~w(yahoo)
-  @notifiers ~w(telegram)
+  # Notifier kinds a rule's `spec.actions` may reference. Telegram is the only
+  # channel in V1 (RFC-0007 §8); Discord/Webhook widen this in V2.
+  @notifier_kinds ~w(telegram)
   @comparison_ops ~w(gt gte lt lte eq ne)
   @crossing_ops ~w(crossed_above crossed_below)
   @market_fields ~w(price open high low close volume)
@@ -29,7 +31,9 @@ defmodule Vigil.Core.Config do
   @type t :: %__MODULE__{
           assets: %{String.t() => Asset.t()},
           rules: %{String.t() => Rule.t()},
-          telegrams: %{String.t() => Telegram.t()},
+          # Configured notifier resources keyed by name. Telegram-only in V1;
+          # the value type widens as V2 channels land.
+          notifiers: %{String.t() => Telegram.t()},
           defaults: Defaults.t() | nil
         }
 
@@ -87,7 +91,7 @@ defmodule Vigil.Core.Config do
 
   @spec empty_acc() :: map()
   defp empty_acc,
-    do: %{assets: %{}, rules: %{}, telegrams: %{}, defaults: nil, order: []}
+    do: %{assets: %{}, rules: %{}, notifiers: %{}, defaults: nil, order: []}
 
   # `order` records the input position of every Asset/Rule resource (the only
   # kinds that can produce a resolve-phase error) so resolve/1 can report
@@ -107,7 +111,7 @@ defmodule Vigil.Core.Config do
   end
 
   defp put_parsed(acc, "Telegram", {name, telegram}),
-    do: put_in(acc, [:telegrams, name], telegram)
+    do: put_in(acc, [:notifiers, name], telegram)
 
   # Keep-first semantics: a second Defaults resource under a DIFFERENT name
   # passes the duplicate check (keyed on {kind, name}) and is silently
@@ -303,7 +307,7 @@ defmodule Vigil.Core.Config do
   end
 
   @spec resolve(map()) :: {:ok, t()} | {:error, [Error.t()]}
-  defp resolve(%{assets: assets, rules: rules, telegrams: telegrams, defaults: defaults} = acc) do
+  defp resolve(%{assets: assets, rules: rules, notifiers: notifiers, defaults: defaults} = acc) do
     order_index =
       acc.order
       |> Enum.reverse()
@@ -315,7 +319,7 @@ defmodule Vigil.Core.Config do
 
     reference_errors =
       validate_asset_references(rules, assets) ++
-        validate_notifier_references(rules, telegrams)
+        validate_notifier_references(rules, notifiers)
 
     case interval_errors ++ reference_errors do
       [] ->
@@ -323,7 +327,7 @@ defmodule Vigil.Core.Config do
          %__MODULE__{
            assets: assets,
            rules: rules,
-           telegrams: telegrams,
+           notifiers: notifiers,
            defaults: defaults
          }}
 
@@ -394,9 +398,9 @@ defmodule Vigil.Core.Config do
 
   @spec validate_notifier_references(%{String.t() => Rule.t()}, %{String.t() => Telegram.t()}) ::
           [Error.t()]
-  defp validate_notifier_references(rules, telegrams) do
+  defp validate_notifier_references(rules, notifiers) do
     Enum.flat_map(rules, fn {_name, rule} ->
-      case validate_rule_actions(rule, telegrams) do
+      case validate_rule_actions(rule, notifiers) do
         :ok -> []
         {:error, %Error{} = error} -> [error]
       end
@@ -405,14 +409,14 @@ defmodule Vigil.Core.Config do
 
   @spec validate_rule_actions(Rule.t(), %{String.t() => Telegram.t()}) ::
           :ok | {:error, Error.t()}
-  defp validate_rule_actions(%Rule{name: name, actions: actions}, telegrams) do
+  defp validate_rule_actions(%Rule{name: name, actions: actions}, notifiers) do
     Enum.reduce_while(actions, :ok, fn action, :ok ->
       cond do
-        action not in @notifiers ->
+        action not in @notifier_kinds ->
           {:halt,
            {:error, error("Rule", name, {:invalid_value, "spec.actions", :unknown_notifier})}}
 
-        not Map.has_key?(telegrams, action) ->
+        not Map.has_key?(notifiers, action) ->
           {:halt, {:error, error("Rule", name, {:unknown_reference, "spec.actions", action})}}
 
         true ->
