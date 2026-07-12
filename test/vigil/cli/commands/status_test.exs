@@ -226,6 +226,20 @@ defmodule Vigil.CLI.Commands.StatusTest do
     end
   end
 
+  describe "empty asset list (daemon up, zero workers)" do
+    test "renders the header only, with no data rows, exit 0" do
+      path = tmp_socket_path()
+      start_bogus_listener(path, Jason.encode!(%{"version" => "1.0.0", "assets" => []}) <> "\n")
+
+      assert {stdout, "", 0} = Status.run(socket: path)
+
+      lines = stdout |> IO.iodata_to_binary() |> String.split("\n", trim: true)
+      assert [header] = lines
+      assert header =~ "asset"
+      assert header =~ "state"
+    end
+  end
+
   describe "Main wiring" do
     test "Main.run(status) returns the daemon-not-reachable tuple" do
       path = tmp_socket_path()

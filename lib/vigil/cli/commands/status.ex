@@ -33,7 +33,10 @@ defmodule Vigil.CLI.Commands.Status do
   alias Vigil.Adapters.ControlSocket
 
   @columns ["asset", "provider", "interval", "last_update", "state"]
-  @connect_opts [:binary, active: false, packet: :line]
+  # `packet_size` bounds the reply buffer (defense in depth — the daemon is
+  # trusted, but a reply with no newline shouldn't buffer without limit); it
+  # comfortably exceeds any real status payload. Mirrors the server's cap.
+  @connect_opts [:binary, active: false, packet: :line, packet_size: 65_536]
   @timeout 5_000
 
   @doc """
