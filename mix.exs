@@ -27,8 +27,13 @@ defmodule Vigil.MixProject do
       source_url: @source_url,
       docs: docs(),
       package: package(),
-      releases: releases()
+      releases: releases(),
+      escript: escript()
     ]
+  end
+
+  defp escript do
+    [main_module: Vigil.CLI.Main, app: nil]
   end
 
   def application do
@@ -45,6 +50,7 @@ defmodule Vigil.MixProject do
       {:file_system, "~> 1.0"},
       {:req, "~> 0.5"},
       {:telemetry, "~> 1.4"},
+      {:jason, "~> 1.4"},
       {:plug, "~> 1.0", only: :test},
 
       # Architecture / quality / docs (not shipped in the release)
