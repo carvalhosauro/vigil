@@ -137,8 +137,24 @@ defmodule Vigil.Runtime.AssetWorkerTest do
 
     assert_receive {[:vigil, :runtime, :cycle, :finished], ^ref, _, %{asset: "petr4"}}, 2_000
 
-    state = AssetWorker.state(pid)
-    assert state.vigil_state.previous_snapshot.price == 40.12
+    # The finished event fires from inside the cycle task; the worker records
+    # the snapshot only when it later processes the task's result message,
+    # which races this query. Poll until the state settles.
+    assert eventually(fn ->
+             match?(
+               %{price: 40.12},
+               AssetWorker.state(pid).vigil_state.previous_snapshot
+             )
+           end)
+  end
+
+  # Retries `fun` until it returns truthy or the budget (default ~1s) runs out.
+  defp eventually(fun, retries \\ 100) do
+    cond do
+      fun.() -> true
+      retries == 0 -> false
+      true -> Process.sleep(10) && eventually(fun, retries - 1)
+    end
   end
 
   test "skips the tick while a cycle is in flight (DEC-001)" do
