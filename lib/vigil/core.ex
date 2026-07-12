@@ -24,6 +24,7 @@ defmodule Vigil.Core do
       NotificationPolicy,
       Rule,
       RuleEngine,
-      State
+      State,
+      State.Health
     ]
 end
