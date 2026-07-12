@@ -278,6 +278,47 @@ defmodule Vigil.Runtime.ControlTest do
     assert_receive {:DOWN, ^ref, :process, ^control_pid, {:acceptor_crashed, :killed}}, 2_000
   end
 
+  describe "accept_error_action/1" do
+    test ":closed (clean shutdown) halts the loop" do
+      assert Control.accept_error_action(:closed) == :halt
+    end
+
+    test ":econnaborted (client vanished) retries the loop" do
+      assert Control.accept_error_action(:econnaborted) == :retry
+    end
+
+    test "any other error crashes so rest_for_one restarts the channel" do
+      assert Control.accept_error_action(:emfile) == :crash
+      assert Control.accept_error_action(:enfile) == :crash
+      assert Control.accept_error_action(:badarg) == :crash
+    end
+  end
+
+  describe "accept_loop/2 error handling" do
+    test "a transient error is retried, then a clean :closed halts the loop" do
+      # Fake accept: one transient failure, then a clean-shutdown close.
+      {:ok, agent} = Agent.start_link(fn -> [{:error, :econnaborted}, {:error, :closed}] end)
+
+      accept_fun = fn _sock ->
+        Agent.get_and_update(agent, fn [head | tail] -> {head, tail} end)
+      end
+
+      # Returns normally (loop halted) only if the transient error was retried
+      # rather than treated as terminal.
+      assert Control.accept_loop(:fake_socket, accept_fun) == :ok
+      assert Agent.get(agent, & &1) == []
+    end
+
+    test "an unexpected error exits {:accept_failed, reason}" do
+      accept_fun = fn _sock -> {:error, :emfile} end
+
+      {_pid, ref} =
+        spawn_monitor(fn -> Control.accept_loop(:fake_socket, accept_fun) end)
+
+      assert_receive {:DOWN, ^ref, :process, _pid, {:accept_failed, :emfile}}, 1_000
+    end
+  end
+
   test "a client that disconnects without sending a line does not crash the server" do
     start_task_supervisors()
     start_workers([worker_spec("petr4")])

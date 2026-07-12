@@ -14,7 +14,22 @@ defmodule Vigil.Runtime.Control do
   Each client connection is handled by a short-lived, unsupervised, unlinked
   task, so a slow or hostile client cannot block the accept loop; the accept
   loop itself runs in a separate linked process so a client crash never
-  reaches it.
+  reaches it. A broken listen socket crashes the acceptor, and the linked
+  `Control` stops so `:rest_for_one` restarts the whole channel with a fresh
+  socket — the loop never silently dies leaving a dead acceptor behind.
+
+  ## Trust model
+
+  Access is gated by filesystem permissions only — there is no authentication
+  on the channel (RFC-0010 §13). The socket file is `0600`, and the default
+  paths sit in a private directory (`$XDG_RUNTIME_DIR`, `0700` per the XDG
+  spec). Two assumptions hold for V1: a normal `umask` (so the brief window
+  between bind and `chmod` never exposes the socket under the default paths),
+  and a single daemon per socket path — `init/1` removes a stale socket file
+  before binding, so pointing two daemons at one path lets the second clobber
+  the first with no warning. The world-writable `tmp` fallback path (used only
+  when `$XDG_RUNTIME_DIR` is unset) is best-effort; prefer `VIGIL_SOCKET` in a
+  private directory for production.
 
   ## Status heuristic (v1)
 
@@ -51,13 +66,23 @@ defmodule Vigil.Runtime.Control do
     # shutdown must be removed first.
     _ = File.rm(path)
 
-    listen_opts = [:binary, packet: :line, active: false, reuseaddr: true, ifaddr: {:local, path}]
+    # `packet_size` caps the line buffer so a client sending an unbounded line
+    # with no newline cannot exhaust the handler's memory (recv returns
+    # `{:error, :emsgsize}`, which `handle_client/1` closes on). A status
+    # request is a few bytes; 4 KiB is generous.
+    listen_opts = [
+      :binary,
+      packet: :line,
+      packet_size: 4_096,
+      active: false,
+      reuseaddr: true,
+      ifaddr: {:local, path}
+    ]
 
     case :gen_tcp.listen(0, listen_opts) do
       {:ok, listen_socket} ->
         :ok = File.chmod!(path, 0o600)
-        parent = self()
-        {:ok, acceptor} = Task.start_link(fn -> accept_loop(listen_socket, parent) end)
+        {:ok, acceptor} = Task.start_link(fn -> accept_loop(listen_socket) end)
         {:ok, %{path: path, listen_socket: listen_socket, acceptor: acceptor}}
 
       {:error, reason} ->
@@ -79,18 +104,35 @@ defmodule Vigil.Runtime.Control do
     :ok
   end
 
-  defp accept_loop(listen_socket, control_pid) do
-    case :gen_tcp.accept(listen_socket) do
+  # `accept_fun` is injectable so the transient/fatal error handling can be
+  # driven directly in tests without inducing real socket faults.
+  @doc false
+  @spec accept_loop(port(), (port() -> {:ok, port()} | {:error, term()})) :: :ok | no_return()
+  def accept_loop(listen_socket, accept_fun \\ &:gen_tcp.accept/1) do
+    case accept_fun.(listen_socket) do
       {:ok, client} ->
         Task.start(fn -> handle_client(client) end)
-        accept_loop(listen_socket, control_pid)
+        accept_loop(listen_socket, accept_fun)
 
-      # `:closed` on a clean `terminate/2` shutdown, or any other error on a
-      # broken listen socket — either way the loop has nothing left to do.
-      {:error, _reason} ->
-        :ok
+      {:error, reason} ->
+        case accept_error_action(reason) do
+          :halt -> :ok
+          :retry -> accept_loop(listen_socket, accept_fun)
+          :crash -> exit({:accept_failed, reason})
+        end
     end
   end
+
+  @doc false
+  # `:closed` is `terminate/2` closing the listen socket — a clean shutdown.
+  # `:econnaborted` is a client that vanished before we accepted it —
+  # transient, keep accepting. Anything else means the listen socket is
+  # broken: crash so the linked `Control` stops and `:rest_for_one` restarts
+  # the channel, rather than exiting `:normal` and leaving it dead.
+  @spec accept_error_action(term()) :: :halt | :retry | :crash
+  def accept_error_action(:closed), do: :halt
+  def accept_error_action(:econnaborted), do: :retry
+  def accept_error_action(_reason), do: :crash
 
   defp handle_client(client) do
     case :gen_tcp.recv(client, 0, 5_000) do

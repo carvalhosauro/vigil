@@ -15,6 +15,11 @@ defmodule Vigil.Adapters.ControlSocket do
     2. `config :vigil, :socket_path`
     3. `${XDG_RUNTIME_DIR}/vigil.sock`
     4. `System.tmp_dir!()/vigil-<uid or user>.sock` (XDG_RUNTIME_DIR unset)
+
+  Paths 1-3 sit in a private directory. Path 4 is a world-writable `tmp`
+  fallback, predictable and squattable by another local user — best-effort
+  only; set `VIGIL_SOCKET` to a private directory for production. See the
+  trust model in `Vigil.Runtime.Control`.
   """
 
   @spec path() :: String.t()
