@@ -7,6 +7,8 @@ defmodule Vigil.CLI.Commands.StatusTest do
   alias Vigil.Core.MarketSnapshot
   alias Vigil.Runtime.{AssetWorker, Control, WorkersSupervisor}
 
+  @registry Vigil.Runtime.WorkerRegistry
+
   defmodule OkProvider do
     def fetch(_asset) do
       {:ok,
@@ -41,17 +43,24 @@ defmodule Vigil.CLI.Commands.StatusTest do
     Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
     on_exit(fn -> Application.delete_env(:vigil, :providers) end)
 
-    Supervisor.child_spec(
-      {AssetWorker,
-       asset: asset(),
-       rules: [],
-       cycle_task_supervisor: __MODULE__.CycleSup,
-       dispatch_task_supervisor: __MODULE__.DispatchSup},
-      id: {AssetWorker, id}
-    )
+    {AssetWorker,
+     asset: asset(),
+     rules: [],
+     cycle_task_supervisor: __MODULE__.CycleSup,
+     dispatch_task_supervisor: __MODULE__.DispatchSup,
+     name: {:via, Registry, {@registry, id}}}
   end
 
-  defp start_workers(specs), do: start_supervised!({WorkersSupervisor, specs})
+  defp start_workers(specs) do
+    start_supervised!({Registry, keys: :unique, name: @registry})
+    start_supervised!(WorkersSupervisor)
+
+    Enum.each(specs, fn spec ->
+      {:ok, _pid} = DynamicSupervisor.start_child(WorkersSupervisor, spec)
+    end)
+
+    :ok
+  end
 
   defp start_control(path) do
     start_supervised!({Control, path: path})

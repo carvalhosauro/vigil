@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Rule
+metadata:
+  name: breakout
+spec:
+  asset: petr4
+  when:
+    all:
+      - field: price
+        op: gt
+        value: 40
+  actions:
+    - telegram
+  cooldown: 15m

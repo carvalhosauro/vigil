@@ -51,6 +51,8 @@ defmodule Vigil.Runtime.Control do
   alias Vigil.Core.State.Health
   alias Vigil.Runtime.{AssetWorker, Events, WorkersSupervisor}
 
+  @worker_registry Vigil.Runtime.WorkerRegistry
+
   @doc false
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -159,11 +161,16 @@ defmodule Vigil.Runtime.Control do
   defp status_payload do
     %{
       version: :vigil |> Application.spec(:vsn) |> to_string(),
-      assets: WorkersSupervisor |> Supervisor.which_children() |> Enum.map(&asset_status/1)
+      assets: WorkersSupervisor |> DynamicSupervisor.which_children() |> Enum.map(&asset_status/1)
     }
   end
 
-  defp asset_status({{AssetWorker, name}, pid, :worker, _modules}) when is_pid(pid) do
+  # A `DynamicSupervisor` does not track children by a caller-chosen id (RFC-0006
+  # D2), so unlike the previous static `Supervisor`, the name here comes from the
+  # worker's own state on the happy path, falling back to a
+  # `Vigil.Runtime.WorkerRegistry` reverse lookup by pid when the worker cannot
+  # answer (dead, restarting, or a `GenServer.call` timeout).
+  defp asset_status({_id, pid, :worker, _modules}) when is_pid(pid) do
     worker_state = AssetWorker.state(pid)
     asset = worker_state.asset
     health = worker_state.vigil_state.health
@@ -178,11 +185,18 @@ defmodule Vigil.Runtime.Control do
     }
   catch
     :exit, reason ->
-      offline_status(name, reason)
+      offline_status(worker_name(pid), reason)
   end
 
-  defp asset_status({{AssetWorker, name}, not_a_pid, :worker, _modules}) do
-    offline_status(name, not_a_pid)
+  defp asset_status({_id, not_a_pid, :worker, _modules}) do
+    offline_status("unknown", not_a_pid)
+  end
+
+  defp worker_name(pid) do
+    case Registry.keys(@worker_registry, pid) do
+      [name | _rest] -> name
+      [] -> "unknown"
+    end
   end
 
   defp offline_status(name, reason) do

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Asset
+metadata:
+  name: itub4
+spec:
+  symbol: ITUB4.SA
+  provider: yahoo
+  interval: 1s

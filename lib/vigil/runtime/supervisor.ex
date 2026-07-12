@@ -1,17 +1,19 @@
 defmodule Vigil.Runtime.Supervisor do
   @moduledoc """
   Boots the Runtime: loads the configuration (fail-fast — an invalid or
-  missing configuration aborts application start, RFC-0010 DEC-003) and starts
-  one `AssetWorker` per Asset.
-
-  Workers are static children this milestone: reconciliation on config change
-  (RFC-0015 §13, RFC-0006) is a future milestone.
+  missing configuration aborts application start, RFC-0010 DEC-003) and hands
+  it to the `Reconciler`, which starts one `AssetWorker` per Asset (RFC-0006:
+  boot is an initial reconcile against an empty actual config).
 
   Topology (`:rest_for_one`):
     CycleTaskSupervisor
     DispatchTaskSupervisor
-    WorkersSupervisor  ← high-intensity sub-supervisor; isolates asset crashes
+    WorkerRegistry     ← names AssetWorkers by asset (survives crash-restarts)
+    WorkersSupervisor  ← dynamic, high-intensity sub-supervisor; isolates
+                          asset crashes; populated by the Reconciler
       └─ AssetWorker × N
+    Reconciler         ← owns the actual config; reconciles config reloads
+                          (RFC-0006), one path for FS-watch and CLI (DEC-006)
     Control            ← control channel socket (RFC-0010 §13); started last so
                           a `status` request never races worker boot.
   """
@@ -19,17 +21,18 @@ defmodule Vigil.Runtime.Supervisor do
   use Supervisor
 
   alias Vigil.Adapters.ConfigLoader
-  alias Vigil.Runtime.{AssetWorker, Control, WorkersSupervisor}
+  alias Vigil.Runtime.{Control, Reconciler, WorkersSupervisor}
 
   @cycle_task_supervisor Vigil.Runtime.CycleTaskSupervisor
   @dispatch_task_supervisor Vigil.Runtime.DispatchTaskSupervisor
+  @worker_registry Vigil.Runtime.WorkerRegistry
 
   def start_link(opts) do
     dir = Keyword.get(opts, :config_dir, ConfigLoader.config_dir())
 
     case ConfigLoader.load(dir) do
       {:ok, config} ->
-        Supervisor.start_link(__MODULE__, config, name: __MODULE__)
+        Supervisor.start_link(__MODULE__, {dir, config}, name: __MODULE__)
 
       {:error, reason} ->
         {:error, {:invalid_config, reason}}
@@ -37,31 +40,18 @@ defmodule Vigil.Runtime.Supervisor do
   end
 
   @impl Supervisor
-  def init(config) do
-    Supervisor.init(children(config), strategy: :rest_for_one)
+  def init({dir, config}) do
+    Supervisor.init(children(dir, config), strategy: :rest_for_one)
   end
 
-  defp children(config) do
-    task_supervisors = [
+  defp children(dir, config) do
+    [
       {Task.Supervisor, name: @cycle_task_supervisor},
-      {Task.Supervisor, name: @dispatch_task_supervisor}
+      {Task.Supervisor, name: @dispatch_task_supervisor},
+      {Registry, keys: :unique, name: @worker_registry},
+      WorkersSupervisor,
+      {Reconciler, config_dir: dir, config: config},
+      Control
     ]
-
-    worker_specs =
-      Enum.map(config.assets, fn {name, asset} ->
-        rules = for {_rule_name, rule} <- config.rules, rule.asset == name, do: rule
-
-        Supervisor.child_spec(
-          {AssetWorker,
-           asset: asset,
-           rules: rules,
-           channel_configs: config.notifiers,
-           cycle_task_supervisor: @cycle_task_supervisor,
-           dispatch_task_supervisor: @dispatch_task_supervisor},
-          id: {AssetWorker, name}
-        )
-      end)
-
-    task_supervisors ++ [{WorkersSupervisor, worker_specs}, Control]
   end
 end

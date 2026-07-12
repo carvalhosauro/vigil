@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Asset
+metadata:
+  name: vale3
+spec:
+  symbol: VALE3.SA
+  provider: yahoo
+  interval: 1s
