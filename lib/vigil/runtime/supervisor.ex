@@ -12,12 +12,14 @@ defmodule Vigil.Runtime.Supervisor do
     DispatchTaskSupervisor
     WorkersSupervisor  ← high-intensity sub-supervisor; isolates asset crashes
       └─ AssetWorker × N
+    Control            ← control channel socket (RFC-0010 §13); started last so
+                          a `status` request never races worker boot.
   """
 
   use Supervisor
 
   alias Vigil.Adapters.ConfigLoader
-  alias Vigil.Runtime.{AssetWorker, WorkersSupervisor}
+  alias Vigil.Runtime.{AssetWorker, Control, WorkersSupervisor}
 
   @cycle_task_supervisor Vigil.Runtime.CycleTaskSupervisor
   @dispatch_task_supervisor Vigil.Runtime.DispatchTaskSupervisor
@@ -60,6 +62,6 @@ defmodule Vigil.Runtime.Supervisor do
         )
       end)
 
-    task_supervisors ++ [{WorkersSupervisor, worker_specs}]
+    task_supervisors ++ [{WorkersSupervisor, worker_specs}, Control]
   end
 end

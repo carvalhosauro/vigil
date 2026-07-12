@@ -62,6 +62,13 @@ defmodule Vigil.CLI.MainTest do
     end
   end
 
+  describe "start" do
+    test "invalid --config exits 2" do
+      assert {"", stderr, 2} = Main.run(["start", "--config", "/nonexistent"])
+      assert IO.iodata_to_binary(stderr) =~ "configuration directory not found"
+    end
+  end
+
   describe "boot/0" do
     test "disables the Runtime supervisor and starts the :vigil application" do
       assert Main.boot() == :ok

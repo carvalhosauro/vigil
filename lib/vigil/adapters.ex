@@ -11,6 +11,7 @@ defmodule Vigil.Adapters do
     deps: [Vigil.Core],
     exports: [
       ConfigLoader,
+      ControlSocket,
       Notifier,
       Notifier.Error,
       Notifier.Log,

@@ -13,7 +13,7 @@ defmodule Vigil.CLI.Main do
   exercised directly.
   """
 
-  alias Vigil.CLI.Commands.{Validate, Version}
+  alias Vigil.CLI.Commands.{Start, Validate, Version}
 
   @switches [config: :string, format: :string, log_level: :string]
 
@@ -22,6 +22,7 @@ defmodule Vigil.CLI.Main do
 
   Commands:
     validate    validate configuration
+    start       start the daemon
     version     print version
   """
 
@@ -76,6 +77,7 @@ defmodule Vigil.CLI.Main do
   @spec run_command(String.t(), keyword()) :: {iodata(), iodata(), 0 | 1 | 2}
   defp run_command("version", opts), do: Version.run(opts)
   defp run_command("validate", opts), do: Validate.run(opts)
+  defp run_command("start", opts), do: Start.run(opts)
   defp run_command(other, _opts), do: usage_error("unknown command #{inspect(other)}")
 
   @spec validate_format(String.t() | nil) :: :ok | {:error, String.t()}
