@@ -157,7 +157,7 @@ defmodule Vigil.Runtime.AssetWorker do
                 :ok
 
               {:error, reason} ->
-                Events.emit([:notification, :failed], %{}, %{
+                Events.emit([:notification, :failed], %{attempts: 0}, %{
                   asset: asset_name,
                   rule: rule.name,
                   reason: {:dispatch_start_failed, reason}
@@ -165,7 +165,7 @@ defmodule Vigil.Runtime.AssetWorker do
             end
 
           :error ->
-            Events.emit([:notification, :failed], %{}, %{
+            Events.emit([:notification, :failed], %{attempts: 0}, %{
               asset: asset_name,
               rule: rule.name,
               reason: {:unknown_notifier, action}
