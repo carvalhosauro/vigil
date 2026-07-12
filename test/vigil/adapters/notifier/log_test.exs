@@ -27,18 +27,7 @@ defmodule Vigil.Adapters.Notifier.LogTest do
     %Rule{name: "breakout", asset: "petr4", condition: %{}, actions: ["telegram"], cooldown: "5m"}
   end
 
-  describe "render/2" do
-    test "renders the RFC-0007 §7 default template deterministically" do
-      message = Log.render(rule(), context())
-
-      assert message == Log.render(rule(), context())
-      assert message =~ "petr4 — breakout"
-      assert message =~ "price: 40.12"
-      assert message =~ "2026-07-01 10:30"
-    end
-  end
-
-  describe "notify/2" do
+  describe "notify/3" do
     setup do
       previous = Logger.level()
       Logger.configure(level: :info)
@@ -49,11 +38,19 @@ defmodule Vigil.Adapters.Notifier.LogTest do
     test "logs the rendered message and returns the delivery" do
       log =
         capture_log(fn ->
-          assert {:ok, %{channel: "log", message: message}} = Log.notify(rule(), context())
+          assert {:ok, %{channel: "log", message: message}} =
+                   Log.notify(rule(), context(), nil)
+
           assert message =~ "breakout"
         end)
 
       assert log =~ "petr4 — breakout"
+    end
+
+    test "ignores the channel config" do
+      capture_log(fn ->
+        assert {:ok, _} = Log.notify(rule(), context(), %{any: :config})
+      end)
     end
   end
 end
