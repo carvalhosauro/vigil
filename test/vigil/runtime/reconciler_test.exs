@@ -257,13 +257,15 @@ defmodule Vigil.Runtime.ReconcilerTest do
     assert_received {[:vigil, :reload, :rejected], ^ref, _, %{reason: _reason}}
   end
 
-  test "apply is best-effort: a start_child failure for one asset does not abort the reload" do
+  test "a name collision with a non-worker process is a real start failure" do
     start_runtime()
 
-    # A decoy process registered under the incoming asset's name makes the
-    # `:via` name collide, so `DynamicSupervisor.start_child/2` returns
-    # `{:error, {:already_started, _pid}}` for it — the other resource
-    # classifications must still be reported (RFC-0006: best-effort apply).
+    # A decoy occupying the incoming asset's `:via` name that is NOT a
+    # supervised `AssetWorker` — `actual_from_runtime/0` only sees real
+    # `WorkersSupervisor` children, so this asset still diffs as `added`, and
+    # `DynamicSupervisor.start_child/2` genuinely collides with it. This must
+    # surface as a failure, not be papered over (RFC-0006: best-effort apply
+    # reports failures instead of masking them).
     decoy =
       spawn(fn -> Registry.register(@registry, "itub4", nil) && Process.sleep(:infinity) end)
 
@@ -276,6 +278,123 @@ defmodule Vigil.Runtime.ReconcilerTest do
     assert [{"itub4", :start, _reason}] = applied.failed
   end
 
+  test "a Reconciler-only crash diffs against the live workers, not an empty config" do
+    start_runtime()
+    assert {:ok, petr4_before} = worker_pid("petr4")
+    assert {:ok, vale3_before} = worker_pid("vale3")
+
+    # Kill only the Reconciler, not WorkersSupervisor: it sits after
+    # WorkersSupervisor in the `:rest_for_one` tree, so `:rest_for_one`
+    # restarts Reconciler (and Control, after it) but leaves the running
+    # AssetWorkers alone. `init/1` now reconstructs `actual` from those
+    # survivors (`actual_from_runtime/0`), so they diff as `unchanged`
+    # against the freshly reloaded desired config — no `added`, no
+    # `already_started` collision, no restart, same pid.
+    reconciler_pid = Process.whereis(Reconciler)
+    ref = Process.monitor(reconciler_pid)
+    Process.exit(reconciler_pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^reconciler_pid, :killed}
+
+    assert eventually(fn ->
+             new_pid = Process.whereis(Reconciler)
+             is_pid(new_pid) and new_pid != reconciler_pid
+           end)
+
+    assert {:ok, ^petr4_before} = worker_pid("petr4")
+    assert {:ok, ^vale3_before} = worker_pid("vale3")
+
+    # The reconciled Reconciler's own state is already back in sync with
+    # disk, so a subsequent manual reload sees no further changes.
+    assert {:ok, %{diff: diff}} = Reconciler.reconcile()
+    assert diff.assets.unchanged == ["petr4", "vale3"]
+  end
+
+  test "a Reconciler-only crash detects an asset removed from disk while it was down" do
+    dir =
+      Path.join(System.tmp_dir!(), "vigil_removed_live_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(dir)
+    File.cp_r!(@base, dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    start_runtime(dir)
+    assert {:ok, _pid} = worker_pid("petr4")
+    assert {:ok, _pid} = worker_pid("vale3")
+
+    # Before this fix, `init/1` always diffed against an empty actual config,
+    # so a removal that happened purely on disk while the Reconciler was down
+    # was never detected on restart — the worker just kept running forever.
+    File.rm!(Path.join(dir, "assets/vale3.yaml"))
+
+    reconciler_pid = Process.whereis(Reconciler)
+    ref = Process.monitor(reconciler_pid)
+    Process.exit(reconciler_pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^reconciler_pid, :killed}
+
+    assert eventually(fn -> worker_pid("vale3") == :error end)
+    assert {:ok, _pid} = worker_pid("petr4")
+  end
+
+  describe "await_deregistered/1 (used by restart_worker/2 to close the deregister race)" do
+    test "polls until the Registry clears the name, then succeeds" do
+      start_runtime()
+      name = "await-test-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      # Holds the name just long enough (well under the 1s timeout, comfortably
+      # over the 10ms poll interval) to force at least one "still registered,
+      # sleep, retry" loop — deterministic, unlike relying on the real
+      # stop/start race actually reproducing within a single test run. The
+      # `:registered` handshake avoids a second race: without it,
+      # `await_deregistered/1` could run its first check before this process
+      # has registered at all, wrongly seeing the name as already free.
+      spawn(fn ->
+        Registry.register(@registry, name, nil)
+        send(test_pid, :registered)
+        Process.sleep(30)
+      end)
+
+      assert_receive :registered
+      assert Reconciler.await_deregistered(name) == :ok
+    end
+
+    test "gives up after the bounded timeout if the name is never freed" do
+      start_runtime()
+      name = "await-test-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      decoy =
+        spawn(fn ->
+          Registry.register(@registry, name, nil)
+          send(test_pid, :registered)
+          Process.sleep(:infinity)
+        end)
+
+      on_exit(fn -> Process.exit(decoy, :kill) end)
+      assert_receive :registered
+
+      assert Reconciler.await_deregistered(name) == {:error, :deregister_timeout}
+    end
+  end
+
+  describe "fetch_worker_state/1 (used by actual_from_runtime/0 on init)" do
+    test "a dead pid is skipped instead of crashing `init/1`" do
+      dead_pid = spawn(fn -> :ok end)
+      # Ensure the process has actually exited before calling — `GenServer.call`
+      # to an already-dead pid fails fast with `:noproc` (no 5s timeout wait).
+      assert eventually(fn -> not Process.alive?(dead_pid) end)
+
+      assert Reconciler.fetch_worker_state(
+               {:undefined, dead_pid, :worker, [Vigil.Runtime.AssetWorker]}
+             ) ==
+               []
+    end
+
+    test "a non-pid child (e.g. :restarting) is skipped instead of crashing `init/1`" do
+      assert Reconciler.fetch_worker_state({:undefined, :restarting, :worker, :dynamic}) == []
+    end
+  end
+
   test "apply is best-effort: removing an asset whose worker already vanished is a no-op" do
     start_runtime()
     terminate_and_deregister("vale3")
@@ -285,6 +404,31 @@ defmodule Vigil.Runtime.ReconcilerTest do
     assert diff.assets.removed == ["vale3"]
     assert applied.stopped == ["vale3"]
     assert applied.failed == []
+  end
+
+  test "apply is best-effort: a restart whose stop half genuinely fails is still reported" do
+    start_runtime()
+    {:ok, real_pid} = worker_pid("petr4")
+
+    # Terminate the real worker for real, then squat its `:via` name with a
+    # decoy that is registered but is NOT a child of `WorkersSupervisor`:
+    # `DynamicSupervisor.terminate_child/2` then returns `{:error, :not_found}`
+    # for it — a genuine (non-`already_started`) failure, distinct from the
+    # start-collision case above, exercising `apply_each/3`'s shared
+    # failed-accumulation clause (RFC-0006: best-effort apply).
+    :ok = DynamicSupervisor.terminate_child(WorkersSupervisor, real_pid)
+    assert eventually(fn -> worker_pid("petr4") == :error end)
+
+    decoy =
+      spawn(fn -> Registry.register(@registry, "petr4", nil) && Process.sleep(:infinity) end)
+
+    on_exit(fn -> Process.exit(decoy, :kill) end)
+
+    assert {:ok, %{diff: diff, applied: applied}} = Reconciler.reconcile(@changed)
+
+    assert diff.assets.changed == ["petr4"]
+    assert applied.restarted == []
+    assert [{"petr4", :restart, :not_found}] = applied.failed
   end
 
   test "apply is best-effort: an in-place update for a vanished worker is captured as failed" do

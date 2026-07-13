@@ -20,13 +20,31 @@ defmodule Vigil.Runtime.Reconciler do
   guarantee (RFC-0006 §9, DEC-002/003) lives entirely in the validation gate:
   a config that fails `Config.validate/1` never reaches apply.
 
-  Boot (`init/1`) loads the desired config from disk and runs the exact same
-  apply step against an empty actual config, so every Asset is an `added`
-  entry and gets a worker the same way a reload would start one — one
-  mechanism for both. Loading from disk (rather than a config captured at
-  boot) means a restart — e.g. after the `WorkersSupervisor` crashes and
-  `:rest_for_one` restarts this process — re-syncs to the current on-disk
+  Boot (`init/1`) loads the desired config from disk and diffs it against
+  `actual_from_runtime/0` — the actual state reconstructed from whatever
+  `AssetWorker`s are currently alive under `WorkersSupervisor`, not always an
+  empty config (see that function's doc). Loading from disk (rather than a
+  config captured at boot) means a restart re-syncs to the current on-disk
   source of truth (DEC-001) instead of reverting to boot state.
+
+  Two restart shapes reach `init/1`:
+
+    * a true cold boot, or a `WorkersSupervisor` crash-restart (it is earlier
+      in the `:rest_for_one` tree, so its crash takes every `AssetWorker`
+      down with it) — `actual_from_runtime/0` sees no live workers, so every
+      Asset in the desired config is `added` and gets a worker, exactly as
+      before.
+    * a Reconciler-only crash-restart — `WorkersSupervisor` and its
+      `AssetWorker`s are earlier in the tree and survive — `actual_from_runtime/0`
+      reconstructs their asset/rule/notifier state, so surviving assets diff
+      as `unchanged`/`changed`/`removed` against the freshly reloaded desired
+      config instead of every asset colliding with its own still-registered
+      `:via` name as `added`. That collision (`{:error, {:already_started,
+      pid}}`) is a real failure (RFC-0006: best-effort apply reports it, does
+      not paper over it) — diffing against what is actually running avoids
+      causing it in the first place, and also means an asset genuinely
+      removed from disk while the Reconciler was down is now correctly
+      stopped on restart, instead of its worker running forever unnoticed.
   """
 
   use GenServer
@@ -41,6 +59,15 @@ defmodule Vigil.Runtime.Reconciler do
   @cycle_task_supervisor Vigil.Runtime.CycleTaskSupervisor
   @dispatch_task_supervisor Vigil.Runtime.DispatchTaskSupervisor
   @empty_config %Config{assets: %{}, rules: %{}, notifiers: %{}, defaults: nil}
+
+  # Bounds `await_deregistered/1` (see `restart_worker/2`): `Registry`
+  # unregisters a terminated process's `:via` name asynchronously (its own
+  # monitor firing on the process's `:DOWN`), so there is a gap after
+  # `DynamicSupervisor.terminate_child/2` returns during which the name is
+  # still taken. 1s is generous for a local monitor `:DOWN` to land; the poll
+  # interval is short so the common case (already clear) barely adds latency.
+  @deregister_timeout_ms 1_000
+  @deregister_poll_interval_ms 10
 
   @type applied :: %{
           started: [String.t()],
@@ -77,11 +104,14 @@ defmodule Vigil.Runtime.Reconciler do
   def init(opts) do
     config_dir = Keyword.get(opts, :config_dir, ConfigLoader.config_dir())
     config = load_or_empty(config_dir)
+    actual = actual_from_runtime()
 
-    # Initial sync: every configured Asset is `added` against an empty actual
-    # config, so it starts a worker through the same apply path a reload uses.
-    diff = ConfigDiff.diff(config, @empty_config)
-    _applied = apply_diff(diff, config, @empty_config)
+    # Initial sync: diff desired against whatever is *actually* running right
+    # now (see moduledoc and `actual_from_runtime/0`) — a cold boot or a
+    # WorkersSupervisor-crash-restart naturally sees no live workers, so this
+    # degrades to the same "everything added" sync as before.
+    diff = ConfigDiff.diff(config, actual)
+    _applied = apply_diff(diff, config, actual)
 
     {:ok, %{config_dir: config_dir, config: config}}
   end
@@ -103,6 +133,71 @@ defmodule Vigil.Runtime.Reconciler do
 
         @empty_config
     end
+  end
+
+  # Reconstructs the actually-running state from live `AssetWorker`s — the
+  # counterpart to loading the *desired* state from disk, used only by
+  # `init/1` (see moduledoc). `defaults` is always `nil`: every live worker's
+  # `asset`/`rules` already have Defaults resolved into them (interval,
+  # cooldown), so there is nothing left for a `Defaults` resource to
+  # contribute here.
+  @spec actual_from_runtime() :: Config.t()
+  defp actual_from_runtime do
+    states =
+      WorkersSupervisor
+      |> DynamicSupervisor.which_children()
+      |> Enum.flat_map(&fetch_worker_state/1)
+
+    %Config{
+      assets: Map.new(states, fn state -> {state.asset.name, state.asset} end),
+      rules: rules_from_states(states),
+      notifiers: notifiers_from_states(states),
+      defaults: nil
+    }
+  end
+
+  # A worker that cannot answer (dead, restarting, or a `GenServer.call`
+  # timeout) is skipped rather than guessed at: it simply will not appear in
+  # `actual`, so the next diff treats it as `added` again — the same outcome
+  # `init/1` always produced for every asset before this reconstruction
+  # existed, just narrowed to the one worker that could not answer.
+  #
+  # Public (with `@doc false`) so both branches are directly unit-testable —
+  # mirrors `Control.accept_loop/2`/`accept_error_action/1`, which are exposed
+  # the same way to drive edge cases without inducing real timing races.
+  @doc false
+  @spec fetch_worker_state({term(), pid() | term(), :worker, [module()] | :dynamic}) :: [map()]
+  def fetch_worker_state({_id, pid, :worker, _modules}) when is_pid(pid) do
+    [AssetWorker.state(pid)]
+  catch
+    :exit, _reason -> []
+  end
+
+  def fetch_worker_state(_child), do: []
+
+  @spec rules_from_states([map()]) :: %{String.t() => Config.Rule.t()}
+  defp rules_from_states(states) do
+    states
+    |> Enum.flat_map(& &1.rules)
+    |> Map.new(&{&1.name, &1})
+  end
+
+  # Notifiers are a global CRD resource (RFC-0003), not per-asset, and a
+  # successful in-place update applies the same `desired.notifiers` map to
+  # every affected worker in one pass — so in the common case every live
+  # worker's `channel_configs` already agree. They can only diverge if a
+  # *previous* reload's apply step failed for some assets and not others
+  # (`applied.failed`); reconstructing "the" actual notifier set is then
+  # inherently approximate. Picking the alphabetically-first asset's
+  # `channel_configs` keeps this deterministic rather than depending on
+  # `DynamicSupervisor.which_children/1`'s unspecified ordering.
+  @spec notifiers_from_states([map()]) :: %{String.t() => Vigil.Core.Config.Telegram.t()}
+  defp notifiers_from_states([]), do: %{}
+
+  defp notifiers_from_states(states) do
+    states
+    |> Enum.min_by(& &1.asset.name)
+    |> Map.fetch!(:channel_configs)
   end
 
   @impl GenServer
@@ -216,10 +311,40 @@ defmodule Vigil.Runtime.Reconciler do
     error -> {:error, error}
   end
 
+  # `stop_worker/1` terminates synchronously, but `Registry` clears the old
+  # `:via` name asynchronously (see `@deregister_timeout_ms`) — without
+  # waiting, `start_worker/2` can race the stale entry and collide with the
+  # very process it just told to stop (`{:error, {:already_started, dying_pid}}`).
   @spec restart_worker(Config.t(), String.t()) :: :ok | {:error, term()}
   defp restart_worker(desired, name) do
-    with :ok <- stop_worker(name) do
+    with :ok <- stop_worker(name),
+         :ok <- await_deregistered(name) do
       start_worker(desired, name)
+    end
+  end
+
+  # Public (with `@doc false`) so the polling branch is directly
+  # unit-testable with a controlled, short-lived registration instead of
+  # depending on the real (and inherently non-deterministic) timing gap
+  # between `stop_worker/1` returning and `Registry`'s own monitor clearing
+  # the name — mirrors `fetch_worker_state/1` above.
+  @doc false
+  @spec await_deregistered(String.t()) :: :ok | {:error, :deregister_timeout}
+  def await_deregistered(name), do: await_deregistered(name, System.monotonic_time(:millisecond))
+
+  @spec await_deregistered(String.t(), integer()) :: :ok | {:error, :deregister_timeout}
+  defp await_deregistered(name, started_at) do
+    case worker_pid(name) do
+      :error ->
+        :ok
+
+      {:ok, _pid} ->
+        if System.monotonic_time(:millisecond) - started_at >= @deregister_timeout_ms do
+          {:error, :deregister_timeout}
+        else
+          Process.sleep(@deregister_poll_interval_ms)
+          await_deregistered(name, started_at)
+        end
     end
   end
 
