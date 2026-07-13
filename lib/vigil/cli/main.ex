@@ -56,7 +56,7 @@ defmodule Vigil.CLI.Main do
   Parses argv, runs the requested command, and returns the rendered output
   streams and exit code. Never writes to stdio and never halts the VM.
   """
-  @spec run([String.t()]) :: {iodata(), iodata(), 0 | 1 | 2}
+  @spec run([String.t()]) :: {iodata(), iodata(), 0 | 1 | 2 | 3}
   def run(argv) do
     case OptionParser.parse(argv, strict: @switches) do
       {opts, args, []} -> dispatch(opts, args)
@@ -64,7 +64,7 @@ defmodule Vigil.CLI.Main do
     end
   end
 
-  @spec dispatch(keyword(), [String.t()]) :: {iodata(), iodata(), 0 | 1 | 2}
+  @spec dispatch(keyword(), [String.t()]) :: {iodata(), iodata(), 0 | 1 | 2 | 3}
   defp dispatch(_opts, []), do: usage_error("missing command")
 
   defp dispatch(opts, [command | _rest]) do
@@ -76,7 +76,7 @@ defmodule Vigil.CLI.Main do
     end
   end
 
-  @spec run_command(String.t(), keyword()) :: {iodata(), iodata(), 0 | 1 | 2}
+  @spec run_command(String.t(), keyword()) :: {iodata(), iodata(), 0 | 1 | 2 | 3}
   defp run_command("version", opts), do: Version.run(opts)
   defp run_command("validate", opts), do: Validate.run(opts)
   defp run_command("start", opts), do: Start.run(opts)

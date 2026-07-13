@@ -32,8 +32,14 @@ defmodule Vigil.CLI.Commands.ReloadTest do
     {pid, listen_socket}
   end
 
-  defp success_payload(added \\ [], changed \\ [], removed \\ []) do
-    %{"ok" => true, "added" => added, "changed" => changed, "removed" => removed}
+  defp success_payload(added \\ [], changed \\ [], removed \\ [], failed \\ []) do
+    %{
+      "ok" => true,
+      "added" => added,
+      "changed" => changed,
+      "removed" => removed,
+      "failed" => failed
+    }
   end
 
   describe "reachable daemon, successful reload" do
@@ -69,6 +75,36 @@ defmodule Vigil.CLI.Commands.ReloadTest do
 
       assert {stdout, "", 0} = Reload.run(socket: path, format: "xml")
       assert IO.iodata_to_binary(stdout) =~ "1 added"
+    end
+  end
+
+  describe "successful reload with a partial apply failure" do
+    test "text output still prints the summary, plus a warning on stderr, exit 1" do
+      path = tmp_socket_path()
+      payload = success_payload(["itub4"], [], [], ["vale3"])
+      start_bogus_listener(path, Jason.encode!(payload) <> "\n")
+
+      assert {stdout, stderr, 1} = Reload.run(socket: path)
+      assert IO.iodata_to_binary(stdout) == "reload: 1 added, 0 changed, 0 removed\n"
+      assert IO.iodata_to_binary(stderr) == "warning: 1 assets failed to apply: vale3\n"
+    end
+
+    test "json output still prints the payload on stdout, plus a warning on stderr, exit 1" do
+      path = tmp_socket_path()
+      payload = success_payload([], ["petr4"], [], ["vale3", "itub4"])
+      start_bogus_listener(path, Jason.encode!(payload) <> "\n")
+
+      assert {stdout, stderr, 1} = Reload.run(socket: path, format: "json")
+      assert IO.iodata_to_binary(stdout) |> Jason.decode!() == payload
+      assert IO.iodata_to_binary(stderr) == "warning: 2 assets failed to apply: vale3, itub4\n"
+    end
+
+    test "an empty failed list is the ordinary success path, exit 0" do
+      path = tmp_socket_path()
+      payload = success_payload(["itub4"])
+      start_bogus_listener(path, Jason.encode!(payload) <> "\n")
+
+      assert {_stdout, "", 0} = Reload.run(socket: path)
     end
   end
 

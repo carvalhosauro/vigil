@@ -12,16 +12,23 @@ defmodule Vigil.CLI.Commands.Reload do
 
   ## Exit codes (RFC-0010 §11)
 
-  Three failure stages are distinguished:
+  Four outcomes are distinguished:
 
     * the *connect* stage failing (no daemon running) — exit 3;
     * a rejected reload (`{"ok": false, ...}` — the on-disk config is
       invalid; the daemon guarantees the running configuration is left
       untouched) — exit 2, matching `validate`'s exit code for invalid
       configuration;
+    * a successful reload (config valid) where applying it failed for one
+      or more assets (`"failed"` non-empty in the payload) — exit 1. This is
+      deliberately distinct from both 0 (clean success) and 2 (the config
+      itself was rejected): the config passed validation and most of the
+      diff applied, but at least one asset did not converge, which is
+      scriptable-worth-noticing without implying the reload was rejected;
     * a malformed, truncated, non-JSON, or key-incomplete reply — a
-      different failure from a rejected reload, since the daemon answered,
-      it just answered unusably — exit 1.
+      different failure again, since the daemon answered, it just answered
+      unusably — also exit 1 (the same code as a partial apply, since both
+      are "something is not fully right" as opposed to unreachable/rejected).
   """
 
   alias Vigil.Adapters.ControlSocket
@@ -60,17 +67,32 @@ defmodule Vigil.CLI.Commands.Reload do
 
   @spec render(term(), String.t(), String.t()) :: {iodata(), iodata(), 0 | 1 | 2}
   defp render(
-         %{"ok" => true, "added" => added, "changed" => changed, "removed" => removed} = payload,
+         %{
+           "ok" => true,
+           "added" => added,
+           "changed" => changed,
+           "removed" => removed,
+           "failed" => failed
+         } = payload,
          format,
          _path
        ) do
-    case format do
-      "json" ->
-        {Jason.encode!(payload) <> "\n", "", 0}
+    stdout =
+      case format do
+        "json" ->
+          Jason.encode!(payload) <> "\n"
 
-      _text ->
-        {"reload: #{length(added)} added, #{length(changed)} changed, #{length(removed)} removed\n",
-         "", 0}
+        _text ->
+          "reload: #{length(added)} added, #{length(changed)} changed, #{length(removed)} removed\n"
+      end
+
+    case failed do
+      [] ->
+        {stdout, "", 0}
+
+      names ->
+        {stdout, "warning: #{length(names)} assets failed to apply: #{Enum.join(names, ", ")}\n",
+         1}
     end
   end
 

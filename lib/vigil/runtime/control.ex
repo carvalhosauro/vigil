@@ -14,10 +14,15 @@ defmodule Vigil.Runtime.Control do
   §15, RFC-0010 §9, DEC-006). Control only relays the result; the `reload.*`
   events (RFC-0006 §14) are emitted by the Reconciler itself, not here.
 
-    * success: `{"ok": true, "added": [...], "changed": [...], "removed": [...]}`,
-      the asset names classified from the applied summary — `added` is
-      `started`, `removed` is `stopped`, `changed` is `restarted ++ updated`
-      (see `Vigil.Runtime.Reconciler` moduledoc for the `applied/0` shape).
+    * success: `{"ok": true, "added": [...], "changed": [...], "removed": [...],
+      "failed": [...]}`, the asset names classified from the applied summary
+      — `added` is `started`, `removed` is `stopped`, `changed` is
+      `restarted ++ updated`, `failed` is the asset names from
+      `applied.failed` (config validation passed, but applying it to one or
+      more assets did not — see `Vigil.Runtime.Reconciler` moduledoc for the
+      `applied/0` shape). `failed` is non-empty independently of the other
+      three: a "changed" asset whose restart failed appears in neither
+      `changed` nor `added`/`removed`, only in `failed`.
     * a rejected reload (invalid on-disk config — the running configuration
       is left untouched): `{"ok": false, "error": "<reason>"}`.
 
@@ -202,7 +207,8 @@ defmodule Vigil.Runtime.Control do
       ok: true,
       added: applied.started,
       changed: applied.restarted ++ applied.updated,
-      removed: applied.stopped
+      removed: applied.stopped,
+      failed: Enum.map(applied.failed, fn {name, _action, _reason} -> name end)
     }
   end
 

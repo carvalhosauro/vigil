@@ -430,7 +430,8 @@ defmodule Vigil.Runtime.ControlTest do
                "ok" => true,
                "added" => [],
                "changed" => [],
-               "removed" => []
+               "removed" => [],
+               "failed" => []
              }
     end
 
@@ -443,8 +444,43 @@ defmodule Vigil.Runtime.ControlTest do
       assert {:ok, line} = request(path, "reload\n")
       body = Jason.decode!(line)
 
-      assert body == %{"ok" => true, "added" => ["itub4"], "changed" => [], "removed" => []}
+      assert body == %{
+               "ok" => true,
+               "added" => ["itub4"],
+               "changed" => [],
+               "removed" => [],
+               "failed" => []
+             }
+
       assert [{_pid, _value}] = Registry.lookup(@registry, "itub4")
+    end
+
+    test "a per-asset apply failure surfaces the asset name in \"failed\"", %{
+      path: path,
+      dir: dir
+    } do
+      # A decoy squats the incoming asset's `:via` name without being a
+      # supervised `WorkersSupervisor` child, so `start_worker` genuinely
+      # collides with it (RFC-0006: best-effort apply — the config itself is
+      # valid, so this is still `"ok": true`, just with a non-empty
+      # `"failed"`).
+      decoy =
+        spawn(fn -> Registry.register(@registry, "itub4", nil) && Process.sleep(:infinity) end)
+
+      on_exit(fn -> Process.exit(decoy, :kill) end)
+
+      File.cp!(@itub4_fixture, Path.join(dir, "assets/itub4.yaml"))
+
+      assert {:ok, line} = request(path, "reload\n")
+      body = Jason.decode!(line)
+
+      assert body == %{
+               "ok" => true,
+               "added" => [],
+               "changed" => [],
+               "removed" => [],
+               "failed" => ["itub4"]
+             }
     end
 
     test "an invalid on-disk config is rejected and running workers are untouched", %{
