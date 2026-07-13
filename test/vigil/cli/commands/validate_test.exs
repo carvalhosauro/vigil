@@ -2,17 +2,12 @@ defmodule Vigil.CLI.Commands.ValidateTest do
   use ExUnit.Case, async: false
 
   alias Vigil.CLI.Commands.Validate
+  alias Vigil.TestSupport
 
   @valid_dir "test/fixtures/configs_valid"
 
   setup do
-    System.put_env("TELEGRAM_TOKEN", "tok")
-    System.put_env("CHAT_ID", "123")
-
-    on_exit(fn ->
-      System.delete_env("TELEGRAM_TOKEN")
-      System.delete_env("CHAT_ID")
-    end)
+    TestSupport.put_telegram_env()
   end
 
   describe "success" do

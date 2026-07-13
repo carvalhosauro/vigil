@@ -1,5 +1,5 @@
 defmodule Vigil.Runtime.SupervisorTest do
-  use ExUnit.Case, async: false
+  use Vigil.RuntimeCase, async: false
 
   alias Vigil.Core.MarketSnapshot
 
@@ -20,15 +20,7 @@ defmodule Vigil.Runtime.SupervisorTest do
   end
 
   setup do
-    System.put_env("TELEGRAM_TOKEN", "tok")
-    System.put_env("CHAT_ID", "123")
-    Application.put_env(:vigil, :providers, %{"yahoo" => StubProvider})
-
-    on_exit(fn ->
-      System.delete_env("TELEGRAM_TOKEN")
-      System.delete_env("CHAT_ID")
-      Application.delete_env(:vigil, :providers)
-    end)
+    TestSupport.put_provider(StubProvider)
   end
 
   test "boots one worker per asset from a valid config dir" do

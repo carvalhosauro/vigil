@@ -1,5 +1,5 @@
 defmodule Vigil.Runtime.ControlTest do
-  use ExUnit.Case, async: false
+  use Vigil.RuntimeCase, async: false
 
   alias Vigil.Core.Config.Asset
   alias Vigil.Core.MarketSnapshot
@@ -61,8 +61,7 @@ defmodule Vigil.Runtime.ControlTest do
 
   defp worker_spec(id, opts \\ []) do
     provider = Keyword.get(opts, :provider, OkProvider)
-    Application.put_env(:vigil, :providers, %{"yahoo" => provider})
-    on_exit(fn -> Application.delete_env(:vigil, :providers) end)
+    TestSupport.put_provider(provider)
 
     {AssetWorker,
      asset: asset(),
@@ -396,9 +395,7 @@ defmodule Vigil.Runtime.ControlTest do
     @itub4_fixture "test/fixtures/reload/added/assets/itub4.yaml"
 
     setup do
-      System.put_env("TELEGRAM_TOKEN", "tok")
-      System.put_env("CHAT_ID", "123")
-      Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
+      TestSupport.put_provider(OkProvider)
 
       dir =
         Path.join(System.tmp_dir!(), "vigil-ctl-reload-#{System.unique_integer([:positive])}")
@@ -409,9 +406,6 @@ defmodule Vigil.Runtime.ControlTest do
       Application.put_env(:vigil, :socket_path, path)
 
       on_exit(fn ->
-        System.delete_env("TELEGRAM_TOKEN")
-        System.delete_env("CHAT_ID")
-        Application.delete_env(:vigil, :providers)
         Application.delete_env(:vigil, :socket_path)
         File.rm_rf!(dir)
       end)
@@ -542,18 +536,10 @@ defmodule Vigil.Runtime.ControlTest do
 
   describe "full loop through Vigil.Runtime.Supervisor" do
     test "a status request against the real supervised topology sees petr4 online" do
-      System.put_env("TELEGRAM_TOKEN", "tok")
-      System.put_env("CHAT_ID", "123")
-      Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
+      TestSupport.put_provider(OkProvider)
       path = tmp_socket_path()
       Application.put_env(:vigil, :socket_path, path)
-
-      on_exit(fn ->
-        System.delete_env("TELEGRAM_TOKEN")
-        System.delete_env("CHAT_ID")
-        Application.delete_env(:vigil, :providers)
-        Application.delete_env(:vigil, :socket_path)
-      end)
+      on_exit(fn -> Application.delete_env(:vigil, :socket_path) end)
 
       ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :runtime, :cycle, :finished]])
 

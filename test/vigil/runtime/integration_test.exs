@@ -1,5 +1,5 @@
 defmodule Vigil.Runtime.IntegrationTest do
-  use ExUnit.Case, async: false
+  use Vigil.RuntimeCase, async: false
 
   alias Vigil.Core.MarketSnapshot
 
@@ -20,17 +20,7 @@ defmodule Vigil.Runtime.IntegrationTest do
   end
 
   test "a satisfied rule produces exactly one notification.sent through the log notifier" do
-    System.put_env("TELEGRAM_TOKEN", "tok")
-    System.put_env("CHAT_ID", "123")
-    Application.put_env(:vigil, :providers, %{"yahoo" => BreakoutProvider})
-    Application.put_env(:vigil, :notifiers, %{"telegram" => Vigil.Adapters.Notifier.Log})
-
-    on_exit(fn ->
-      System.delete_env("TELEGRAM_TOKEN")
-      System.delete_env("CHAT_ID")
-      Application.delete_env(:vigil, :providers)
-      Application.delete_env(:vigil, :notifiers)
-    end)
+    TestSupport.put_provider(BreakoutProvider)
 
     ref =
       :telemetry_test.attach_event_handlers(self(), [

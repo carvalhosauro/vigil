@@ -1,5 +1,5 @@
 defmodule Vigil.Runtime.WatcherTest do
-  use ExUnit.Case, async: false
+  use Vigil.RuntimeCase, async: false
 
   alias Vigil.Core.MarketSnapshot
   alias Vigil.Runtime.Watcher
@@ -272,19 +272,11 @@ defmodule Vigil.Runtime.WatcherTest do
 
   describe "end-to-end through Vigil.Runtime.Supervisor" do
     setup do
-      System.put_env("TELEGRAM_TOKEN", "tok")
-      System.put_env("CHAT_ID", "123")
-      Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
+      TestSupport.put_provider(OkProvider)
 
       dir = Path.join(System.tmp_dir!(), "vigil-watcher-#{System.unique_integer([:positive])}")
       File.cp_r!(@base, dir)
-
-      on_exit(fn ->
-        System.delete_env("TELEGRAM_TOKEN")
-        System.delete_env("CHAT_ID")
-        Application.delete_env(:vigil, :providers)
-        File.rm_rf!(dir)
-      end)
+      on_exit(fn -> File.rm_rf!(dir) end)
 
       {:ok, dir: dir}
     end

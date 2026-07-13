@@ -1,5 +1,5 @@
 defmodule Vigil.CLI.Commands.StartTest do
-  use ExUnit.Case, async: false
+  use Vigil.RuntimeCase, async: false
 
   alias Vigil.Adapters.ControlSocket
   alias Vigil.CLI.Commands.Start
@@ -42,12 +42,7 @@ defmodule Vigil.CLI.Commands.StartTest do
   end
 
   setup do
-    System.put_env("TELEGRAM_TOKEN", "tok")
-    System.put_env("CHAT_ID", "123")
-
     on_exit(fn ->
-      System.delete_env("TELEGRAM_TOKEN")
-      System.delete_env("CHAT_ID")
       # `Start.run/2` sets this app env as a side effect of a real `--config`
       # run — every test in this file passes `:config`, so it must be reset
       # or it leaks into unrelated tests (e.g. ConfigLoaderTest).
@@ -140,13 +135,10 @@ defmodule Vigil.CLI.Commands.StartTest do
 
   describe "successful start" do
     setup do
-      Application.put_env(:vigil, :providers, %{"yahoo" => StubProvider})
+      TestSupport.put_provider(StubProvider)
       Application.put_env(:vigil, :socket_path, tmp_socket_path())
 
-      on_exit(fn ->
-        Application.delete_env(:vigil, :providers)
-        reset_app()
-      end)
+      on_exit(fn -> reset_app() end)
 
       :ok
     end

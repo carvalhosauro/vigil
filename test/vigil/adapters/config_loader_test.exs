@@ -2,6 +2,7 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
   use ExUnit.Case, async: false
 
   alias Vigil.Adapters.ConfigLoader
+  alias Vigil.TestSupport
 
   @valid_dir "test/fixtures/configs_valid"
 
@@ -77,14 +78,8 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
   describe "load/0" do
     test "delegates to load/1 with config_dir/0's directory" do
       System.put_env("VIGIL_CONFIG_DIR", @valid_dir)
-      System.put_env("TELEGRAM_TOKEN", "tok")
-      System.put_env("CHAT_ID", "123")
-
-      on_exit(fn ->
-        System.delete_env("VIGIL_CONFIG_DIR")
-        System.delete_env("TELEGRAM_TOKEN")
-        System.delete_env("CHAT_ID")
-      end)
+      on_exit(fn -> System.delete_env("VIGIL_CONFIG_DIR") end)
+      TestSupport.put_telegram_env()
 
       assert {:ok, %Vigil.Core.Config{}} = ConfigLoader.load()
     end
@@ -92,13 +87,7 @@ defmodule Vigil.Adapters.ConfigLoaderTest do
 
   describe "load/1" do
     setup do
-      System.put_env("TELEGRAM_TOKEN", "tok")
-      System.put_env("CHAT_ID", "123")
-
-      on_exit(fn ->
-        System.delete_env("TELEGRAM_TOKEN")
-        System.delete_env("CHAT_ID")
-      end)
+      TestSupport.put_telegram_env()
     end
 
     test "loads and validates the full fixture directory" do
