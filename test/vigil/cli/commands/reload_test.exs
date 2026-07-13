@@ -86,7 +86,7 @@ defmodule Vigil.CLI.Commands.ReloadTest do
 
       assert {stdout, stderr, 1} = Reload.run(socket: path)
       assert IO.iodata_to_binary(stdout) == "reload: 1 added, 0 changed, 0 removed\n"
-      assert IO.iodata_to_binary(stderr) == "warning: 1 assets failed to apply: vale3\n"
+      assert IO.iodata_to_binary(stderr) == "warning: 1 asset failed to apply: vale3\n"
     end
 
     test "json output still prints the payload on stdout, plus a warning on stderr, exit 1" do
@@ -105,6 +105,16 @@ defmodule Vigil.CLI.Commands.ReloadTest do
       start_bogus_listener(path, Jason.encode!(payload) <> "\n")
 
       assert {_stdout, "", 0} = Reload.run(socket: path)
+    end
+
+    test "a success reply without the failed key still renders cleanly, exit 0" do
+      # A daemon predating the partial-apply field omits "failed" entirely.
+      path = tmp_socket_path()
+      payload = %{"ok" => true, "added" => ["itub4"], "changed" => [], "removed" => []}
+      start_bogus_listener(path, Jason.encode!(payload) <> "\n")
+
+      assert {stdout, "", 0} = Reload.run(socket: path)
+      assert IO.iodata_to_binary(stdout) == "reload: 1 added, 0 changed, 0 removed\n"
     end
   end
 

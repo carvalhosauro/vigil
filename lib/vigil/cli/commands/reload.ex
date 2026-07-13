@@ -67,16 +67,15 @@ defmodule Vigil.CLI.Commands.Reload do
 
   @spec render(term(), String.t(), String.t()) :: {iodata(), iodata(), 0 | 1 | 2}
   defp render(
-         %{
-           "ok" => true,
-           "added" => added,
-           "changed" => changed,
-           "removed" => removed,
-           "failed" => failed
-         } = payload,
+         %{"ok" => true, "added" => added, "changed" => changed, "removed" => removed} = payload,
          format,
          _path
        ) do
+    # `failed` is read defensively rather than pattern-matched so a success
+    # reply from a daemon predating the partial-apply field still renders
+    # cleanly instead of falling through to "malformed".
+    failed = Map.get(payload, "failed", [])
+
     stdout =
       case format do
         "json" ->
@@ -91,8 +90,7 @@ defmodule Vigil.CLI.Commands.Reload do
         {stdout, "", 0}
 
       names ->
-        {stdout, "warning: #{length(names)} assets failed to apply: #{Enum.join(names, ", ")}\n",
-         1}
+        {stdout, "warning: #{failed_phrase(names)}: #{Enum.join(names, ", ")}\n", 1}
     end
   end
 
@@ -104,6 +102,10 @@ defmodule Vigil.CLI.Commands.Reload do
   end
 
   defp render(_payload, _format, path), do: malformed_response(path)
+
+  @spec failed_phrase([String.t()]) :: String.t()
+  defp failed_phrase([_one]), do: "1 asset failed to apply"
+  defp failed_phrase(names), do: "#{length(names)} assets failed to apply"
 
   @spec not_reachable(String.t()) :: {iodata(), iodata(), 3}
   defp not_reachable(path), do: {"", "error: daemon not reachable at #{path}\n", 3}
