@@ -3,8 +3,29 @@ defmodule Vigil.Runtime.Control do
   The CLI↔daemon control channel (RFC-0010 §13, DEC-007).
 
   A Unix domain socket, owner-only (`0600`), line-based protocol: a client
-  sends one line (`"status\\n"`), the server replies with one line of JSON and
-  closes the connection. Unknown requests get a JSON error line and close.
+  sends one line (`"status\\n"` or `"reload\\n"`), the server replies with one
+  line of JSON and closes the connection. Unknown requests get a JSON error
+  line and close.
+
+  ## reload
+
+  `"reload\\n"` calls `Vigil.Runtime.Reconciler.reconcile/0` — the single
+  reconciliation path shared with a filesystem-triggered reload (RFC-0006
+  §15, RFC-0010 §9, DEC-006). Control only relays the result; the `reload.*`
+  events (RFC-0006 §14) are emitted by the Reconciler itself, not here.
+
+    * success: `{"ok": true, "added": [...], "changed": [...], "removed": [...]}`,
+      the asset names classified from the applied summary — `added` is
+      `started`, `removed` is `stopped`, `changed` is `restarted ++ updated`
+      (see `Vigil.Runtime.Reconciler` moduledoc for the `applied/0` shape).
+    * a rejected reload (invalid on-disk config — the running configuration
+      is left untouched): `{"ok": false, "error": "<reason>"}`.
+
+  `reconcile/0` is a `GenServer.call`; a Reconciler that is dead or mid-restart
+  turns that into an `:exit` in the caller. `safe_reconcile/0` catches it and
+  answers with a JSON error line instead of crashing this client task (which
+  would otherwise merely log, since each connection already runs isolated —
+  but a clean error reply is friendlier to the CLI than a dropped connection).
 
   Started as the last child of `Vigil.Runtime.Supervisor`'s `:rest_for_one`
   tree, after `WorkersSupervisor`, so a `status` request never races worker
@@ -48,8 +69,9 @@ defmodule Vigil.Runtime.Control do
   require Logger
 
   alias Vigil.Adapters.ControlSocket
+  alias Vigil.Core.Config.Error
   alias Vigil.Core.State.Health
-  alias Vigil.Runtime.{AssetWorker, Events, WorkersSupervisor}
+  alias Vigil.Runtime.{AssetWorker, Events, Reconciler, WorkersSupervisor}
 
   @worker_registry Vigil.Runtime.WorkerRegistry
 
@@ -154,9 +176,50 @@ defmodule Vigil.Runtime.Control do
     :gen_tcp.send(client, Jason.encode!(status_payload()) <> "\n")
   end
 
+  defp respond("reload", client) do
+    :gen_tcp.send(client, Jason.encode!(reload_payload()) <> "\n")
+  end
+
   defp respond(_other, client) do
     :gen_tcp.send(client, Jason.encode!(%{error: "unknown request"}) <> "\n")
   end
+
+  defp reload_payload do
+    case safe_reconcile() do
+      {:ok, %{applied: applied}} -> reload_ok(applied)
+      {:error, reason} -> %{ok: false, error: render_reject_reason(reason)}
+    end
+  end
+
+  defp safe_reconcile do
+    Reconciler.reconcile()
+  catch
+    :exit, reason -> {:error, {:reconciler_unavailable, reason}}
+  end
+
+  defp reload_ok(applied) do
+    %{
+      ok: true,
+      added: applied.started,
+      changed: applied.restarted ++ applied.updated,
+      removed: applied.stopped
+    }
+  end
+
+  # `Vigil.CLI.ErrorRenderer` renders the same `Config.Error` shape with
+  # full English messages, but it lives in the `Vigil.CLI` boundary group,
+  # which `Vigil.Runtime` cannot depend on — this is a smaller, boundary-safe
+  # rendering good enough for a control-channel diagnostic.
+  @spec render_reject_reason(term()) :: String.t()
+  defp render_reject_reason([%Error{} | _] = errors) do
+    errors
+    |> Enum.map(fn %Error{kind: kind, name: name, reason: reason} ->
+      "#{kind}/#{name}: #{inspect(reason)}"
+    end)
+    |> Enum.join("; ")
+  end
+
+  defp render_reject_reason(reason), do: inspect(reason)
 
   defp status_payload do
     %{

@@ -163,6 +163,24 @@ defmodule Vigil.Runtime.ControlTest do
     assert Jason.decode!(line) == %{"error" => "unknown request"}
   end
 
+  test "a reload request with no Reconciler running answers ok:false instead of crashing" do
+    # This harness starts Registry/WorkersSupervisor/Control directly (unlike
+    # the "reload request" describe block below, which boots the full
+    # `Vigil.Runtime.Supervisor` tree) — there is no `Vigil.Runtime.Reconciler`
+    # process registered, so `Reconciler.reconcile/0`'s `GenServer.call` exits
+    # `{:noproc, ...}`. `safe_reconcile/0` must turn that into a JSON error
+    # reply rather than crashing the client task.
+    start_task_supervisors()
+    start_workers([worker_spec("petr4")])
+    path = start_control()
+
+    assert {:ok, line} = request(path, "reload\n")
+    body = Jason.decode!(line)
+
+    assert body["ok"] == false
+    assert is_binary(body["error"])
+  end
+
   test "a worker that never replies degrades gracefully instead of crashing the reply" do
     start_task_supervisors()
 
@@ -371,6 +389,119 @@ defmodule Vigil.Runtime.ControlTest do
     # The server is still up for the next request.
     Process.sleep(50)
     assert {:ok, _line} = request(path, "status\n")
+  end
+
+  describe "reload request" do
+    @base_fixture "test/fixtures/reload/base"
+    @itub4_fixture "test/fixtures/reload/added/assets/itub4.yaml"
+
+    setup do
+      System.put_env("TELEGRAM_TOKEN", "tok")
+      System.put_env("CHAT_ID", "123")
+      Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
+
+      dir =
+        Path.join(System.tmp_dir!(), "vigil-ctl-reload-#{System.unique_integer([:positive])}")
+
+      File.cp_r!(@base_fixture, dir)
+
+      path = tmp_socket_path()
+      Application.put_env(:vigil, :socket_path, path)
+
+      on_exit(fn ->
+        System.delete_env("TELEGRAM_TOKEN")
+        System.delete_env("CHAT_ID")
+        Application.delete_env(:vigil, :providers)
+        Application.delete_env(:vigil, :socket_path)
+        File.rm_rf!(dir)
+      end)
+
+      ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :runtime, :cycle, :finished]])
+      start_supervised!({Vigil.Runtime.Supervisor, config_dir: dir})
+      assert_receive {[:vigil, :runtime, :cycle, :finished], ^ref, _, %{asset: "petr4"}}, 2_000
+
+      {:ok, dir: dir, path: path}
+    end
+
+    test "no changes on disk reports an empty diff", %{path: path} do
+      assert {:ok, line} = request(path, "reload\n")
+
+      assert Jason.decode!(line) == %{
+               "ok" => true,
+               "added" => [],
+               "changed" => [],
+               "removed" => []
+             }
+    end
+
+    test "an added asset file is reported as added and its worker starts", %{
+      path: path,
+      dir: dir
+    } do
+      File.cp!(@itub4_fixture, Path.join(dir, "assets/itub4.yaml"))
+
+      assert {:ok, line} = request(path, "reload\n")
+      body = Jason.decode!(line)
+
+      assert body == %{"ok" => true, "added" => ["itub4"], "changed" => [], "removed" => []}
+      assert [{_pid, _value}] = Registry.lookup(@registry, "itub4")
+    end
+
+    test "an invalid on-disk config is rejected and running workers are untouched", %{
+      path: path,
+      dir: dir
+    } do
+      File.write!(Path.join(dir, "assets/petr4.yaml"), """
+      apiVersion: v1
+      kind: Asset
+      metadata:
+        name: petr4
+      spec:
+        provider: yahoo
+      """)
+
+      assert {:ok, pid_before} = worker_pid_in(@registry, "petr4")
+
+      assert {:ok, line} = request(path, "reload\n")
+      body = Jason.decode!(line)
+
+      assert %{"ok" => false, "error" => error} = body
+      assert is_binary(error)
+
+      assert {:ok, ^pid_before} = worker_pid_in(@registry, "petr4")
+      assert [{_pid, _value}] = Registry.lookup(@registry, "vale3")
+    end
+
+    test "the on-disk config directory vanishing produces a non-list rejection reason", %{
+      path: path,
+      dir: dir
+    } do
+      # `ConfigLoader.load/1` fails at the loader stage here (`{:config_dir_not_found,
+      # dir}`), before `Config.validate/1` ever produces a list of `Config.Error`
+      # structs — `render_reject_reason/1`'s catch-all clause must still
+      # render it instead of raising a `FunctionClauseError`.
+      File.rm_rf!(dir)
+
+      assert {:ok, line} = request(path, "reload\n")
+      body = Jason.decode!(line)
+
+      assert %{"ok" => false, "error" => error} = body
+      assert is_binary(error)
+    end
+
+    test "the acceptor survives a reload and still handles subsequent requests", %{path: path} do
+      assert {:ok, _line} = request(path, "reload\n")
+      assert {:ok, line} = request(path, "bogus\n")
+      assert Jason.decode!(line) == %{"error" => "unknown request"}
+      assert {:ok, _line} = request(path, "status\n")
+    end
+  end
+
+  defp worker_pid_in(registry, name) do
+    case Registry.lookup(registry, name) do
+      [{pid, _value}] -> {:ok, pid}
+      [] -> :error
+    end
   end
 
   describe "full loop through Vigil.Runtime.Supervisor" do

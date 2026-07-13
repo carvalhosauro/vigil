@@ -13,7 +13,7 @@ defmodule Vigil.CLI.Main do
   exercised directly.
   """
 
-  alias Vigil.CLI.Commands.{Start, Status, Validate, Version}
+  alias Vigil.CLI.Commands.{Reload, Start, Status, Validate, Version}
 
   @switches [config: :string, format: :string, log_level: :string, socket: :string]
 
@@ -24,6 +24,7 @@ defmodule Vigil.CLI.Main do
     validate    validate configuration
     start       start the daemon
     status      show runtime status
+    reload      trigger a configuration reload
     version     print version
   """
 
@@ -80,6 +81,7 @@ defmodule Vigil.CLI.Main do
   defp run_command("validate", opts), do: Validate.run(opts)
   defp run_command("start", opts), do: Start.run(opts)
   defp run_command("status", opts), do: Status.run(opts)
+  defp run_command("reload", opts), do: Reload.run(opts)
   defp run_command(other, _opts), do: usage_error("unknown command #{inspect(other)}")
 
   @spec validate_format(String.t() | nil) :: :ok | {:error, String.t()}
