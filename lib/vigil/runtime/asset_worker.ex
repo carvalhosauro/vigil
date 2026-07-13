@@ -33,6 +33,15 @@ defmodule Vigil.Runtime.AssetWorker do
   @spec state(GenServer.server()) :: map()
   def state(server), do: GenServer.call(server, :state)
 
+  @doc """
+  Swaps `rules` and/or `channel_configs` in place (RFC-0006 D4, §12, DEC-005):
+  no restart, no disruption to the cycle/schedule or accumulated
+  `vigil_state`. Used when a Rule or Notifier change affects this asset but
+  the Asset spec itself did not change.
+  """
+  @spec update_config(GenServer.server(), keyword()) :: :ok
+  def update_config(server, opts), do: GenServer.call(server, {:update_config, opts})
+
   @impl GenServer
   def init(opts) do
     asset = Keyword.fetch!(opts, :asset)
@@ -57,6 +66,16 @@ defmodule Vigil.Runtime.AssetWorker do
 
   @impl GenServer
   def handle_call(:state, _from, state), do: {:reply, state, state}
+
+  def handle_call({:update_config, opts}, _from, state) do
+    state = %{
+      state
+      | rules: Keyword.get(opts, :rules, state.rules),
+        channel_configs: Keyword.get(opts, :channel_configs, state.channel_configs)
+    }
+
+    {:reply, :ok, state}
+  end
 
   @impl GenServer
   def handle_info(:tick, state) do

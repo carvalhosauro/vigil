@@ -5,6 +5,8 @@ defmodule Vigil.Runtime.ControlTest do
   alias Vigil.Core.MarketSnapshot
   alias Vigil.Runtime.{AssetWorker, Control, WorkersSupervisor}
 
+  @registry Vigil.Runtime.WorkerRegistry
+
   defmodule OkProvider do
     def fetch(_asset) do
       {:ok,
@@ -24,10 +26,23 @@ defmodule Vigil.Runtime.ControlTest do
   # A raw process that answers nothing — simulates a worker that never
   # replies to `AssetWorker.state/1`'s `GenServer.call`, so the request times
   # out (Control's per-worker catch must turn that into an "offline" entry
-  # instead of crashing the whole status reply).
+  # instead of crashing the whole status reply). Registers itself under its
+  # own name so Control's Registry-based fallback lookup still finds it.
   defmodule UnresponsiveStub do
-    def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
-    def start_link(_opts), do: {:ok, spawn_link(fn -> Process.sleep(:infinity) end)}
+    def child_spec(opts) do
+      %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, restart: :temporary}
+    end
+
+    def start_link(opts) do
+      name = Keyword.fetch!(opts, :name)
+      registry = Keyword.fetch!(opts, :registry)
+
+      {:ok,
+       spawn_link(fn ->
+         Registry.register(registry, name, nil)
+         Process.sleep(:infinity)
+       end)}
+    end
   end
 
   defp asset, do: %Asset{name: "petr4", symbol: "PETR4.SA", provider: "yahoo", interval: "1s"}
@@ -42,23 +57,30 @@ defmodule Vigil.Runtime.ControlTest do
     :ok
   end
 
+  defp via(name), do: {:via, Registry, {@registry, name}}
+
   defp worker_spec(id, opts \\ []) do
     provider = Keyword.get(opts, :provider, OkProvider)
     Application.put_env(:vigil, :providers, %{"yahoo" => provider})
     on_exit(fn -> Application.delete_env(:vigil, :providers) end)
 
-    Supervisor.child_spec(
-      {AssetWorker,
-       asset: asset(),
-       rules: [],
-       cycle_task_supervisor: __MODULE__.CycleSup,
-       dispatch_task_supervisor: __MODULE__.DispatchSup},
-      id: {AssetWorker, id}
-    )
+    {AssetWorker,
+     asset: asset(),
+     rules: [],
+     cycle_task_supervisor: __MODULE__.CycleSup,
+     dispatch_task_supervisor: __MODULE__.DispatchSup,
+     name: via(id)}
   end
 
   defp start_workers(specs) do
-    start_supervised!({WorkersSupervisor, specs})
+    start_supervised!({Registry, keys: :unique, name: @registry})
+    start_supervised!(WorkersSupervisor)
+
+    Enum.each(specs, fn spec ->
+      {:ok, _pid} = DynamicSupervisor.start_child(WorkersSupervisor, spec)
+    end)
+
+    :ok
   end
 
   defp start_control(opts \\ []) do
@@ -144,11 +166,7 @@ defmodule Vigil.Runtime.ControlTest do
   test "a worker that never replies degrades gracefully instead of crashing the reply" do
     start_task_supervisors()
 
-    dead_spec =
-      Supervisor.child_spec({UnresponsiveStub, []},
-        id: {AssetWorker, "slow"},
-        restart: :temporary
-      )
+    dead_spec = {UnresponsiveStub, name: "slow", registry: @registry}
 
     start_workers([worker_spec("petr4"), dead_spec])
 
@@ -169,6 +187,30 @@ defmodule Vigil.Runtime.ControlTest do
     assert slow["provider"] == nil
   end
 
+  test "a dead worker with no Registry entry reports name \"unknown\" instead of crashing" do
+    start_task_supervisors()
+
+    unregistered_spec = %{
+      id: :unregistered,
+      start: {Task, :start_link, [fn -> Process.sleep(:infinity) end]},
+      restart: :temporary
+    }
+
+    start_workers([worker_spec("petr4"), unregistered_spec])
+
+    ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :runtime, :cycle, :finished]])
+    assert_receive {[:vigil, :runtime, :cycle, :finished], ^ref, _, %{asset: "petr4"}}, 2_000
+
+    path = start_control()
+
+    assert {:ok, line} = request(path, "status\n")
+    body = Jason.decode!(line)
+
+    names = Enum.map(body["assets"], & &1["name"])
+    assert "petr4" in names
+    assert "unknown" in names
+  end
+
   test "a degraded asset (1-2 consecutive failures with a prior success)" do
     start_task_supervisors()
     start_workers([worker_spec("petr4")])
@@ -176,8 +218,7 @@ defmodule Vigil.Runtime.ControlTest do
     ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :runtime, :cycle, :finished]])
     assert_receive {[:vigil, :runtime, :cycle, :finished], ^ref, _, %{asset: "petr4"}}, 2_000
 
-    [{{AssetWorker, "petr4"}, worker_pid, _, _}] =
-      Supervisor.which_children(WorkersSupervisor)
+    [{worker_pid, _value}] = Registry.lookup(@registry, "petr4")
 
     :sys.replace_state(worker_pid, fn worker_state ->
       health = %{worker_state.vigil_state.health | consecutive_failures: 2}
@@ -200,7 +241,7 @@ defmodule Vigil.Runtime.ControlTest do
     ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :runtime, :cycle, :finished]])
     assert_receive {[:vigil, :runtime, :cycle, :finished], ^ref, _, %{asset: "petr4"}}, 2_000
 
-    [{{AssetWorker, "petr4"}, worker_pid, _, _}] = Supervisor.which_children(WorkersSupervisor)
+    [{worker_pid, _value}] = Registry.lookup(@registry, "petr4")
 
     :sys.replace_state(worker_pid, fn worker_state ->
       health = %{worker_state.vigil_state.health | consecutive_failures: 3}
@@ -223,7 +264,7 @@ defmodule Vigil.Runtime.ControlTest do
     ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :runtime, :cycle, :finished]])
     assert_receive {[:vigil, :runtime, :cycle, :finished], ^ref, _, %{asset: "petr4"}}, 2_000
 
-    [{{AssetWorker, "petr4"}, worker_pid, _, _}] = Supervisor.which_children(WorkersSupervisor)
+    [{worker_pid, _value}] = Registry.lookup(@registry, "petr4")
 
     :sys.replace_state(worker_pid, fn worker_state ->
       health = %{worker_state.vigil_state.health | last_success: nil, consecutive_failures: 0}

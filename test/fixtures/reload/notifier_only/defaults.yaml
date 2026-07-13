@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Defaults
+metadata:
+  name: global
+spec:
+  polling:
+    interval: 1m
+  notifications:
+    cooldown: 5m

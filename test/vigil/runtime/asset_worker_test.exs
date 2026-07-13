@@ -241,6 +241,45 @@ defmodule Vigil.Runtime.AssetWorkerTest do
     assert state.vigil_state.health.consecutive_failures == 0
   end
 
+  describe "update_config/2 (RFC-0006 D4, §12, DEC-005)" do
+    test "swaps rules and channel_configs in place, without disrupting the cycle/schedule" do
+      pid = start_worker(OkProvider)
+
+      # Let the worker's initial cycle (triggered on init) settle first, so it
+      # can't race with the before/after comparison below.
+      assert eventually(fn -> AssetWorker.state(pid).vigil_state.previous_snapshot != nil end)
+      state_before = AssetWorker.state(pid)
+
+      new_rules = [rule("1m")]
+      new_channel_configs = %{"telegram" => %{token: "x", chat_id: "y"}}
+
+      assert :ok =
+               AssetWorker.update_config(pid,
+                 rules: new_rules,
+                 channel_configs: new_channel_configs
+               )
+
+      state_after = AssetWorker.state(pid)
+
+      assert state_after.rules == new_rules
+      assert state_after.channel_configs == new_channel_configs
+      # Untouched: same pid, same schedule/cycle bookkeeping, same asset.
+      assert AssetWorker.state(pid) |> Map.get(:asset) == state_before.asset
+      assert state_after.next_tick_at == state_before.next_tick_at
+      assert state_after.vigil_state == state_before.vigil_state
+    end
+
+    test "an omitted key keeps its current value" do
+      pid = start_worker(OkProvider)
+
+      assert :ok = AssetWorker.update_config(pid, rules: [])
+
+      state = AssetWorker.state(pid)
+      assert state.rules == []
+      assert state.channel_configs == %{}
+    end
+  end
+
   describe "delivery retry (RFC-0015 §12, RFC-0007 §11)" do
     test "retries a retryable failure then succeeds: one sent event, no failed event" do
       start_counter(RetryOnceNotifier)

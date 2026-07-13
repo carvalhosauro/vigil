@@ -163,10 +163,11 @@ defmodule Vigil.CLI.Commands.StartTest do
 
       # The Runtime actually started: WorkersSupervisor has the fixture's
       # single asset worker.
-      assert [{{AssetWorker, "petr4"}, pid, :worker, _}] =
-               Supervisor.which_children(WorkersSupervisor)
+      assert [{_id, pid, :worker, _modules}] =
+               DynamicSupervisor.which_children(WorkersSupervisor)
 
       assert is_pid(pid)
+      assert AssetWorker.state(pid).asset.name == "petr4"
     end
 
     test "block_fun is invoked exactly once after a successful start" do
