@@ -27,6 +27,15 @@ defmodule Vigil.Runtime.Reconciler do
   boot) means a restart — e.g. after the `WorkersSupervisor` crashes and
   `:rest_for_one` restarts this process — re-syncs to the current on-disk
   source of truth (DEC-001) instead of reverting to boot state.
+
+  A different restart shape — only this GenServer crashes (`WorkersSupervisor`
+  and its `AssetWorker`s are earlier in the `:rest_for_one` tree and survive)
+  — hits `init/1` the same way: it diffs the reloaded config against an empty
+  actual config, so every surviving asset is `added` again and `start_worker`
+  collides with the still-registered `:via` name. `DynamicSupervisor.start_child/2`
+  reports that as `{:error, {:already_started, pid}}`; `start_worker` treats it
+  as success rather than a failure, since the desired worker is already running
+  under that name — there is nothing to reconcile.
   """
 
   use GenServer
@@ -200,6 +209,7 @@ defmodule Vigil.Runtime.Reconciler do
 
     case DynamicSupervisor.start_child(WorkersSupervisor, worker_child_spec(asset, desired)) do
       {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
       {:error, reason} -> {:error, reason}
     end
   rescue

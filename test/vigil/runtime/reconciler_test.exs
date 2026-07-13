@@ -257,13 +257,15 @@ defmodule Vigil.Runtime.ReconcilerTest do
     assert_received {[:vigil, :reload, :rejected], ^ref, _, %{reason: _reason}}
   end
 
-  test "apply is best-effort: a start_child failure for one asset does not abort the reload" do
+  test "already_started (a surviving worker under the same name) is treated as idempotent success" do
     start_runtime()
 
-    # A decoy process registered under the incoming asset's name makes the
-    # `:via` name collide, so `DynamicSupervisor.start_child/2` returns
-    # `{:error, {:already_started, _pid}}` for it — the other resource
-    # classifications must still be reported (RFC-0006: best-effort apply).
+    # A decoy process registered under the incoming asset's `:via` name
+    # stands in for a worker that survived a Reconciler-only crash-restart:
+    # `DynamicSupervisor.start_child/2` returns
+    # `{:error, {:already_started, _pid}}` for it. The desired worker is
+    # already running under that name, so this now counts as success rather
+    # than a spurious failure (see moduledoc).
     decoy =
       spawn(fn -> Registry.register(@registry, "itub4", nil) && Process.sleep(:infinity) end)
 
@@ -272,8 +274,38 @@ defmodule Vigil.Runtime.ReconcilerTest do
     assert {:ok, %{diff: diff, applied: applied}} = Reconciler.reconcile(@added)
 
     assert diff.assets.added == ["itub4"]
-    assert applied.started == []
-    assert [{"itub4", :start, _reason}] = applied.failed
+    assert applied.started == ["itub4"]
+    assert applied.failed == []
+  end
+
+  test "a Reconciler-only crash leaves surviving workers untouched and comes back cleanly" do
+    start_runtime()
+    assert {:ok, petr4_before} = worker_pid("petr4")
+    assert {:ok, vale3_before} = worker_pid("vale3")
+
+    # Kill only the Reconciler, not WorkersSupervisor: it sits after
+    # WorkersSupervisor in the `:rest_for_one` tree, so `:rest_for_one`
+    # restarts Reconciler (and Control, after it) but leaves the running
+    # AssetWorkers alone. `init/1` reloads from disk and diffs against an
+    # empty actual config, so every surviving asset is `added` again and
+    # `start_worker` collides with the still-registered `:via` name — this
+    # must resolve as a harmless no-op, not crash-loop the tree.
+    reconciler_pid = Process.whereis(Reconciler)
+    ref = Process.monitor(reconciler_pid)
+    Process.exit(reconciler_pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^reconciler_pid, :killed}
+
+    assert eventually(fn ->
+             new_pid = Process.whereis(Reconciler)
+             is_pid(new_pid) and new_pid != reconciler_pid
+           end)
+
+    assert {:ok, ^petr4_before} = worker_pid("petr4")
+    assert {:ok, ^vale3_before} = worker_pid("vale3")
+
+    # The reconciled Reconciler still answers reconcile/0 normally afterward.
+    assert {:ok, %{diff: diff}} = Reconciler.reconcile()
+    assert diff.assets.unchanged == ["petr4", "vale3"]
   end
 
   test "apply is best-effort: removing an asset whose worker already vanished is a no-op" do
@@ -285,6 +317,31 @@ defmodule Vigil.Runtime.ReconcilerTest do
     assert diff.assets.removed == ["vale3"]
     assert applied.stopped == ["vale3"]
     assert applied.failed == []
+  end
+
+  test "apply is best-effort: a restart whose stop half genuinely fails is still reported" do
+    start_runtime()
+    {:ok, real_pid} = worker_pid("petr4")
+
+    # Terminate the real worker for real, then squat its `:via` name with a
+    # decoy that is registered but is NOT a child of `WorkersSupervisor`:
+    # `DynamicSupervisor.terminate_child/2` then returns `{:error, :not_found}`
+    # for it — a genuine (non-`already_started`) failure, distinct from the
+    # start-collision case above, exercising `apply_each/3`'s shared
+    # failed-accumulation clause (RFC-0006: best-effort apply).
+    :ok = DynamicSupervisor.terminate_child(WorkersSupervisor, real_pid)
+    assert eventually(fn -> worker_pid("petr4") == :error end)
+
+    decoy =
+      spawn(fn -> Registry.register(@registry, "petr4", nil) && Process.sleep(:infinity) end)
+
+    on_exit(fn -> Process.exit(decoy, :kill) end)
+
+    assert {:ok, %{diff: diff, applied: applied}} = Reconciler.reconcile(@changed)
+
+    assert diff.assets.changed == ["petr4"]
+    assert applied.restarted == []
+    assert [{"petr4", :restart, :not_found}] = applied.failed
   end
 
   test "apply is best-effort: an in-place update for a vanished worker is captured as failed" do
