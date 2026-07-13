@@ -6,7 +6,10 @@ defmodule Vigil.Runtime.Supervisor do
   from disk itself and starts one `AssetWorker` per Asset (RFC-0006: boot is
   an initial reconcile against an empty actual config). Passing the directory
   rather than a boot-time snapshot means a Reconciler restart re-syncs to the
-  current on-disk source of truth (DEC-001) instead of reverting to boot.
+  current on-disk source of truth (DEC-001) instead of reverting to boot. The
+  `Watcher` is handed the same directory so a filesystem-triggered reload and
+  a manual one (RFC-0010) always reconcile against the same on-disk source of
+  truth (DEC-006).
 
   Topology (`:rest_for_one`):
     CycleTaskSupervisor
@@ -17,6 +20,8 @@ defmodule Vigil.Runtime.Supervisor do
       └─ AssetWorker × N
     Reconciler         ← owns the actual config; reconciles config reloads
                           (RFC-0006), one path for FS-watch and CLI (DEC-006)
+    Watcher            ← watches the config dir, debounces, calls
+                          `Reconciler.reconcile/0` on change (RFC-0006 §6)
     Control            ← control channel socket (RFC-0010 §13); started last so
                           a `status` request never races worker boot.
   """
@@ -24,7 +29,7 @@ defmodule Vigil.Runtime.Supervisor do
   use Supervisor
 
   alias Vigil.Adapters.ConfigLoader
-  alias Vigil.Runtime.{Control, Reconciler, WorkersSupervisor}
+  alias Vigil.Runtime.{Control, Reconciler, Watcher, WorkersSupervisor}
 
   @cycle_task_supervisor Vigil.Runtime.CycleTaskSupervisor
   @dispatch_task_supervisor Vigil.Runtime.DispatchTaskSupervisor
@@ -35,7 +40,7 @@ defmodule Vigil.Runtime.Supervisor do
 
     case ConfigLoader.load(dir) do
       {:ok, _config} ->
-        Supervisor.start_link(__MODULE__, dir, name: __MODULE__)
+        Supervisor.start_link(__MODULE__, Keyword.put(opts, :config_dir, dir), name: __MODULE__)
 
       {:error, reason} ->
         {:error, {:invalid_config, reason}}
@@ -43,17 +48,25 @@ defmodule Vigil.Runtime.Supervisor do
   end
 
   @impl Supervisor
-  def init(dir) do
-    Supervisor.init(children(dir), strategy: :rest_for_one)
+  def init(opts) do
+    dir = Keyword.fetch!(opts, :config_dir)
+    Supervisor.init(children(dir, opts), strategy: :rest_for_one)
   end
 
-  defp children(dir) do
+  # `:watcher` in `opts` is an escape hatch for tests that need a faster
+  # debounce (or a stubbed watch/reconcile backend) than the real Watcher's
+  # defaults — production boots never pass it, so `children/2` behaves
+  # exactly as before for every existing caller.
+  defp children(dir, opts) do
+    watcher_opts = Keyword.merge([config_dir: dir], Keyword.get(opts, :watcher, []))
+
     [
       {Task.Supervisor, name: @cycle_task_supervisor},
       {Task.Supervisor, name: @dispatch_task_supervisor},
       {Registry, keys: :unique, name: @worker_registry},
       WorkersSupervisor,
       {Reconciler, config_dir: dir},
+      {Watcher, watcher_opts},
       Control
     ]
   end
