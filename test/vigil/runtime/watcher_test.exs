@@ -102,6 +102,26 @@ defmodule Vigil.Runtime.WatcherTest do
     assert_receive :reconciled, 300
   end
 
+  test "a timer that fires while an event is queued still coalesces to one reconcile" do
+    # Reproduces the debounce boundary race deterministically via suspend:
+    # event A schedules the timer, the process is suspended, event B is queued,
+    # then A's timer fires (its :debounced_reconcile lands in the mailbox
+    # BEHIND B). On resume, B is processed first with the timer still set —
+    # the reset must flush the stale :debounced_reconcile so only B's fresh
+    # timer reconciles. Without the flush, both fire → two reconciles.
+    {pid, backend_pid} = start_synthetic_watcher(debounce_ms: 100)
+
+    send(pid, {:file_event, backend_pid, {"assets/foo.yaml", [:created]}})
+    :sys.suspend(pid)
+    send(pid, {:file_event, backend_pid, {"assets/bar.yaml", [:modified]}})
+    # Let event A's timer fire while suspended, so its message queues behind B.
+    Process.sleep(150)
+    :sys.resume(pid)
+
+    assert_receive :reconciled, 300
+    refute_receive :reconciled, 200
+  end
+
   test "a rejected reconcile does not crash the watcher" do
     {pid, backend_pid} =
       start_synthetic_watcher(debounce_ms: 30, reconcile_fun: fn -> {:error, :invalid} end)

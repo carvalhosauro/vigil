@@ -182,6 +182,16 @@ defmodule Vigil.Runtime.Watcher do
 
   defp reset_debounce_timer(%{timer_ref: ref} = state) do
     Process.cancel_timer(ref)
+    # If the timer already fired before this event was processed, its message
+    # is sitting in the mailbox; cancel_timer can't remove it. Flush it so the
+    # freshly scheduled timer is the only one that reconciles — otherwise a
+    # `:file_event` landing right at expiry coalesces to two reconciles.
+    receive do
+      :debounced_reconcile -> :ok
+    after
+      0 -> :ok
+    end
+
     schedule_debounce(state)
   end
 
