@@ -2,20 +2,15 @@ defmodule Vigil.CLI.MainTest do
   use ExUnit.Case, async: false
 
   alias Vigil.CLI.Main
+  alias Vigil.TestSupport
 
   import ExUnit.CaptureIO, only: [capture_io: 1, capture_io: 2]
 
   @valid_dir "test/fixtures/configs_valid"
 
   setup do
-    System.put_env("TELEGRAM_TOKEN", "tok")
-    System.put_env("CHAT_ID", "123")
-
-    on_exit(fn ->
-      System.delete_env("TELEGRAM_TOKEN")
-      System.delete_env("CHAT_ID")
-      Logger.configure(level: :warning)
-    end)
+    TestSupport.put_telegram_env()
+    on_exit(fn -> Logger.configure(level: :warning) end)
   end
 
   describe "version" do

@@ -1,5 +1,5 @@
 defmodule Vigil.Runtime.ReconcilerTest do
-  use ExUnit.Case, async: false
+  use Vigil.RuntimeCase, async: false
 
   alias Vigil.Adapters.ConfigLoader
   alias Vigil.Core.MarketSnapshot
@@ -31,17 +31,7 @@ defmodule Vigil.Runtime.ReconcilerTest do
   end
 
   setup do
-    System.put_env("TELEGRAM_TOKEN", "tok")
-    System.put_env("CHAT_ID", "123")
-    Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
-
-    on_exit(fn ->
-      System.delete_env("TELEGRAM_TOKEN")
-      System.delete_env("CHAT_ID")
-      Application.delete_env(:vigil, :providers)
-    end)
-
-    :ok
+    TestSupport.put_provider(OkProvider)
   end
 
   # Boots the full runtime tree (Registry, WorkersSupervisor, Reconciler,

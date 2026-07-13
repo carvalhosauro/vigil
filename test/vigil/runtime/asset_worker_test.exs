@@ -4,6 +4,7 @@ defmodule Vigil.Runtime.AssetWorkerTest do
   alias Vigil.Core.Config.{Asset, Rule}
   alias Vigil.Core.{MarketSnapshot, State}
   alias Vigil.Runtime.AssetWorker
+  alias Vigil.TestSupport
 
   defmodule OkProvider do
     def fetch(_asset) do
@@ -97,8 +98,7 @@ defmodule Vigil.Runtime.AssetWorkerTest do
   end
 
   defp start_worker(provider) do
-    Application.put_env(:vigil, :providers, %{"yahoo" => provider})
-    on_exit(fn -> Application.delete_env(:vigil, :providers) end)
+    TestSupport.put_provider(provider)
 
     start_supervised!(
       {AssetWorker,
@@ -111,13 +111,8 @@ defmodule Vigil.Runtime.AssetWorkerTest do
   end
 
   defp start_worker_with_notifier(notifier, cooldown \\ "5m") do
-    Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
-    Application.put_env(:vigil, :notifiers, %{"telegram" => notifier})
-
-    on_exit(fn ->
-      Application.delete_env(:vigil, :providers)
-      Application.delete_env(:vigil, :notifiers)
-    end)
+    TestSupport.put_provider(OkProvider)
+    TestSupport.put_notifiers(%{"telegram" => notifier})
 
     start_supervised!(
       {AssetWorker,
@@ -197,8 +192,7 @@ defmodule Vigil.Runtime.AssetWorkerTest do
   test "dispatch start_child failure does not crash the worker and emits [:notification, :failed]" do
     ref = :telemetry_test.attach_event_handlers(self(), [[:vigil, :notification, :failed]])
 
-    Application.put_env(:vigil, :providers, %{"yahoo" => OkProvider})
-    on_exit(fn -> Application.delete_env(:vigil, :providers) end)
+    TestSupport.put_provider(OkProvider)
 
     # A dispatch supervisor with max_children: 0 causes start_child to return
     # {:error, :max_children} for every call — simulating a restarting supervisor.

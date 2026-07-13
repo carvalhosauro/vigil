@@ -12,6 +12,7 @@ defmodule Vigil.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       compilers: [:boundary] ++ Mix.compilers(),
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       aliases: aliases(),
       dialyzer: dialyzer(),
@@ -35,6 +36,9 @@ defmodule Vigil.MixProject do
   defp escript do
     [main_module: Vigil.CLI.Main, app: nil]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [
